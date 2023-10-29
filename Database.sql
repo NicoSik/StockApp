@@ -29,8 +29,6 @@ CREATE TABLE IF NOT EXISTS users(  -- Changed "use" to "users" since "use" can b
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL
 );
-
-
 	--Insert into stock (symbol, company) VALUES ('MSFT', 'Microsoft');
 	SELECT * FROM stock;
 	
