@@ -27,7 +27,6 @@ public class CreateDB {
             String company = jason.get("name").getAsString();
             String market = jason.get("exchange").getAsString();
 
-            // Insert the data to our database
             String sql = "INSERT INTO stock (symbol, company, market) VALUES (?, ?, ?)";
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, symbol);

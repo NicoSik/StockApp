@@ -22,6 +22,7 @@ public class GetApi {
 
         try (Response response = client.newCall(request).execute()) {
             if (response.isSuccessful()) {
+                String sql = "SELECT symbol,company,market from stokck";
                 CreateDB db = new CreateDB();
                 String responseBody = response.body().string();
                 JsonArray jsonArray = JsonParser.parseString(responseBody).getAsJsonArray();
