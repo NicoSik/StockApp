@@ -28,6 +28,8 @@ public class PopulateDB {
             int affectedRows = statement.executeUpdate();
             if (affectedRows > 0) {
                 System.out.println("Insert successful!" + symbol);
+            } else {
+                System.out.println("Nothing happened");
             }
         } catch (SQLException e) {
             e.printStackTrace();
