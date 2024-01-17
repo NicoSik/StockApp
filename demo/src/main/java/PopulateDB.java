@@ -1,11 +1,7 @@
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.Objects;
-
 import com.google.gson.JsonObject;
 
 public class PopulateDB {
@@ -28,8 +24,6 @@ public class PopulateDB {
             int affectedRows = statement.executeUpdate();
             if (affectedRows > 0) {
                 System.out.println("Insert successful!" + symbol);
-            } else {
-                System.out.println("Nothing happened");
             }
         } catch (SQLException e) {
             e.printStackTrace();

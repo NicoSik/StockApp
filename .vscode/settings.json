@@ -1,4 +1,9 @@
 {
     "java.configuration.updateBuildConfiguration": "interactive",
-    "java.debug.settings.onBuildFailureProceed": true
+    "java.debug.settings.onBuildFailureProceed": true,
+    "terminal.integrated.env.windows": {
+        "DB_URL": "jdbc:postgresql://localhost:5433/postgres?charSet=UTF-8",
+        "DB_USERNAME": "postgres",
+        "DB_PASSWORD": "Cypisek00"
+    }
 }

@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS stock(
 CREATE TABLE IF NOT EXISTS stock_price(
     id SERIAL PRIMARY KEY,
     stock_id INTEGER,
-    date DATE NOT NULL,  -- Consider using DATE datatype instead of TEXT for dates
+    date DATE NOT NULL,  -- 
     volume INT NOT NULL,
     FOREIGN KEY (stock_id) REFERENCES stock(id)
 );
@@ -25,11 +25,10 @@ CREATE TABLE IF NOT EXISTS watchlist(
     name TEXT
 );
 
-CREATE TABLE IF NOT EXISTS users(  -- Changed "use" to "users" since "use" can be confusing or problematic
+CREATE TABLE IF NOT EXISTS users(  
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL
 );
-	--Insert into stock (symbol, company) VALUES ('MSFT', 'Microsoft');
-	SELECT * FROM stock;
+	
 	
 	

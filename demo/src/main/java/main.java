@@ -3,9 +3,6 @@ import java.io.IOException;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Scanner;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import okhttp3.*;
 
@@ -16,10 +13,10 @@ public class main {
         final String API_URL = "https://paper-api.alpaca.markets";
         final String API_KEY_ID = "PKVZVHGYI6YIVM1BYNNC";
         final String API_SECRET_KEY = "9H0wkaHycnQpp9y0lNY2CRSfwg9IHyiFisig9ShC";
-        final String jdbcUrl = "jdbc:postgresql://localhost:5433/postgres?charSet=UTF-8";
-        final String username = "postgres";
-        final String password = "Cypisek00";
-
+        final String jdbcUrl = System.getenv("DB_URL");
+        final String username = System.getenv("DB_USERNAME");
+        final String password = System.getenv("DB_PASSWORD");
+        // System.out.println(jdbcUrl+ username+ password);
         Request request = new Request.Builder()
                 .url(API_URL + "/v2/assets")
                 .addHeader("APCA-API-KEY-ID", API_KEY_ID)
@@ -31,9 +28,9 @@ public class main {
 
                 java.sql.Connection connection = DriverManager.getConnection(jdbcUrl, username,
                         password);
-                Scheduler taskScheduler = new Scheduler(connection, response); 
+                Scheduler taskScheduler = new Scheduler(connection, response);
                 taskScheduler.scheduleDailyTask();
-                // taskScheduler.s
+                // taskScheduler.schedulePriceUpdate();
                 System.out.println("--[ Trading APP ]--");
 
             }
