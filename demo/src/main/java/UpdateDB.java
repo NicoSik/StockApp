@@ -17,7 +17,7 @@ public class UpdateDB {
 
     public List<String> fetchData() {
         List<String> dataList = new ArrayList<>();
-        String sql = "SELECT your_column FROM ?"; //Lage egne lister for hver rad???
+        String sql = "SELECT your_column FROM ?"; 
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, table);
             try (ResultSet resultSet = statement.executeQuery()) {
@@ -35,5 +35,5 @@ public class UpdateDB {
     public void UpdateAll() {
 
     }
-    
+
 }

@@ -12,7 +12,7 @@ public class main {
 
         final String API_URL = "https://paper-api.alpaca.markets";
         final String API_KEY_ID = "PKVZVHGYI6YIVM1BYNNC";
-        final String API_SECRET_KEY = "9H0wkaHycnQpp9y0lNY2CRSfwg9IHyiFisig9ShC";
+        final String API_SECRET_KEY = "9H0wkaHycnQpp9y0lNY2CRSfwg9IHyiFisig9ShC"; // Hide this
         final String jdbcUrl = System.getenv("DB_URL");
         final String username = System.getenv("DB_USERNAME");
         final String password = System.getenv("DB_PASSWORD");
@@ -25,10 +25,10 @@ public class main {
         OkHttpClient client = new OkHttpClient();
         try (Response response = client.newCall(request).execute()) {
             if (response.isSuccessful()) {
-
+                String responseBody = response.body().string();
                 java.sql.Connection connection = DriverManager.getConnection(jdbcUrl, username,
                         password);
-                Scheduler taskScheduler = new Scheduler(connection, response);
+                Scheduler taskScheduler = new Scheduler(connection, responseBody);
                 taskScheduler.scheduleDailyTask();
                 // taskScheduler.schedulePriceUpdate();
                 System.out.println("--[ Trading APP ]--");
@@ -43,17 +43,4 @@ public class main {
         return s.nextLine();
     }
 
-    private static Integer getIntFromUser(String message, boolean canBeBlank) {
-        while (true) {
-            String str = getStrFromUser(message);
-            if (str.equals("") && canBeBlank) {
-                return null;
-            }
-            try {
-                return Integer.valueOf(str);
-            } catch (NumberFormatException ex) {
-                System.out.println("Please provide an integer or leave blank.");
-            }
-        }
-    }
 }
