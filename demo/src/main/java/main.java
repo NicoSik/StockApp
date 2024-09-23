@@ -40,19 +40,30 @@ public class main {
                 Scheduler taskScheduler = new Scheduler(connection, responseBody);
                 taskScheduler.scheduleDailyTask();
                 List<String> stockList = List.of("AAPL", "GOOGL", "MSFT");
-                get("/stocks", (req, res) -> {
-                    try {
-                        Map<String, Object> model = new HashMap<>();
-                        model.put("stocks", stockList); // Pass stock list to HTML
-                        return new ModelAndView(model, "webapp/index.vtl");
-                    } catch (Exception e) {
-                        e.printStackTrace(); // Log the exception to the console
-                        res.status(500); // Set HTTP status to 500
-                        Map<String, Object> errorModel = new HashMap<>();
-                        errorModel.put("error", "Internal Server Error"); // Optionally pass an error message
-                        return new ModelAndView(errorModel, "webapp/error.vtl"); // Return an error template
-                    }
-                }, new VelocityTemplateEngine());
+                get("/test", (req, res) -> {
+                    System.out.println("Test route hit!");
+                    return "Test route works!";
+                });
+                awaitInitialization();
+
+                // get("/stocks", (req, res) -> {
+                // try {
+                // Map<String, Object> model = new HashMap<>();
+                // model.put("stocks", stockList); // Pass stock list to HTML
+                // System.out.println("Stocks: " + stockList);
+                // return new ModelAndView(model, "webapp/index.vtl");
+
+                // } catch (Exception e) {
+                // System.out.println("Error: " + e.getMessage());
+                // e.printStackTrace(); // Log the exception to the console
+                // res.status(500); // Set HTTP status to 500
+                // Map<String, Object> errorModel = new HashMap<>();
+                // errorModel.put("error", "Internal Server Error"); // Optionally pass an error
+                // message
+                // return new ModelAndView(errorModel, "webapp/error.vtl"); // Return an error
+                // template
+                // }
+                // }, new VelocityTemplateEngine());
 
                 // get("/stocks/:symbol", (req, res) -> {
                 // String symbol = req.params(":symbol");
@@ -64,6 +75,7 @@ public class main {
                 System.out.println("--[ Trading APP ]--");
 
             }
+            System.out.println("Response: " + response);
         }
     }
 
