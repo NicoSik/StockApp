@@ -31,6 +31,7 @@ public class Scheduler {
     }
 
     public void scheduleDailyTask() throws IllegalStateException {// 25 15 * * *
+        GetApi.insertInto(con, res);
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
         // Calculate time between now and target time
@@ -50,7 +51,6 @@ public class Scheduler {
             e.printStackTrace();
         }
 
-        // WORKS BUT gives an error WHEN FINISHED WITH TASK
     }
 
     private long calculateInitialDelay(LocalTime now, LocalTime targetTime) {

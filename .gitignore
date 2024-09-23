@@ -1,0 +1,22 @@
+ 
+# Ignore compiled class files
+*.class
+
+# Ignore the target directory (for Maven or similar builds)
+target/
+
+# Ignore log files
+*.log
+
+# Ignore IDE-specific files
+*.iml
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Ignore OS-specific files
+.DS_Store          # macOS
+Thumbs.db         # Windows
+
+# Ignore environment variables or configuration files
+.env

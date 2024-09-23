@@ -2,20 +2,29 @@
 import java.io.IOException;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Scanner;
 
 import okhttp3.*;
+import spark.ModelAndView;
+import org.eclipse.jetty.server.Server;
+import spark.ModelAndView;
+import spark.template.velocity.VelocityTemplateEngine;
+import static spark.Spark.*;
 
 public class main {
 
     public static void main(String[] args) throws IOException, SQLException {
-
+        port(4567);
         final String API_URL = "https://paper-api.alpaca.markets";
         final String API_KEY_ID = "PKVZVHGYI6YIVM1BYNNC";
         final String API_SECRET_KEY = "9H0wkaHycnQpp9y0lNY2CRSfwg9IHyiFisig9ShC"; // Hide this
-        final String jdbcUrl = System.getenv("DB_URL");
-        final String username = System.getenv("DB_USERNAME");
-        final String password = System.getenv("DB_PASSWORD");
+        final String jdbcUrl = "jdbc:postgresql://localhost:5433/postgres"; // System.getenv("DB_URL");
+
+        final String username = "postgres";// System.getenv("DB_USERNAME"); // postgres
+        final String password = "Cypisek00";// System.getenv("DB_PASSWORD");// Cypisekk00
         // System.out.println(jdbcUrl+ username+ password);
         Request request = new Request.Builder()
                 .url(API_URL + "/v2/assets")
@@ -30,6 +39,27 @@ public class main {
                         password);
                 Scheduler taskScheduler = new Scheduler(connection, responseBody);
                 taskScheduler.scheduleDailyTask();
+                List<String> stockList = List.of("AAPL", "GOOGL", "MSFT");
+                get("/stocks", (req, res) -> {
+                    try {
+                        Map<String, Object> model = new HashMap<>();
+                        model.put("stocks", stockList); // Pass stock list to HTML
+                        return new ModelAndView(model, "webapp/index.vtl");
+                    } catch (Exception e) {
+                        e.printStackTrace(); // Log the exception to the console
+                        res.status(500); // Set HTTP status to 500
+                        Map<String, Object> errorModel = new HashMap<>();
+                        errorModel.put("error", "Internal Server Error"); // Optionally pass an error message
+                        return new ModelAndView(errorModel, "webapp/error.vtl"); // Return an error template
+                    }
+                }, new VelocityTemplateEngine());
+
+                // get("/stocks/:symbol", (req, res) -> {
+                // String symbol = req.params(":symbol");
+                // Map<String, Object> model = new HashMap<>();
+                // model.put("symbol", symbol);
+                // return new ModelAndView(model, "templates/stock.vtl");
+                // }, new VelocityTemplateEngine());
                 // taskScheduler.schedulePriceUpdate();
                 System.out.println("--[ Trading APP ]--");
 
