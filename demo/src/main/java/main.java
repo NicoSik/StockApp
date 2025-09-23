@@ -2,6 +2,9 @@ import java.io.IOException;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Scanner;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Properties;
 
 import okhttp3.*;
 import io.javalin.Javalin;
@@ -9,14 +12,43 @@ import io.javalin.http.staticfiles.Location;
 
 public class main {
 
-    public static void main(String[] args) throws IOException, SQLException {
-        final String API_URL = "https://paper-api.alpaca.markets";
-        final String API_KEY_ID = "PKVZVHGYI6YIVM1BYNNC";
-        final String API_SECRET_KEY = "9H0wkaHycnQpp9y0lNY2CRSfwg9IHyiFisig9ShC"; // Hide this
-        final String jdbcUrl = "jdbc:postgresql://localhost:5433/postgres"; // System.getenv("DB_URL");
+    private static Properties loadEnvFile() {
+        Properties props = new Properties();
+        try {
+            String content = new String(Files.readAllBytes(Paths.get(".env")));
+            String[] lines = content.split("\n");
+            for (String line : lines) {
+                line = line.trim();
+                if (!line.isEmpty() && !line.startsWith("#") && line.contains("=")) {
+                    String[] parts = line.split("=", 2);
+                    props.setProperty(parts[0].trim(), parts[1].trim());
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Error loading .env file: " + e.getMessage());
+            System.err.println("Please ensure .env file exists in the project root directory");
+        }
+        return props;
+    }
 
-        final String username = "postgres"; // System.getenv("DB_USERNAME");
-        final String password = "Cypisek00"; // System.getenv("DB_PASSWORD");
+    public static void main(String[] args) throws IOException, SQLException {
+        // Load environment variables from .env file
+        Properties env = loadEnvFile();
+        
+        final String API_URL = "https://paper-api.alpaca.markets";
+        final String API_KEY_ID = env.getProperty("API_KEY_ID");
+        final String API_SECRET_KEY = env.getProperty("API_SECRET_KEY");
+        final String jdbcUrl = env.getProperty("DB_URL");
+
+        final String username = env.getProperty("DB_USERNAME");
+        final String password = env.getProperty("DB_PASSWORD");
+
+        // Validate that all required environment variables are set
+        if (API_KEY_ID == null || API_SECRET_KEY == null || jdbcUrl == null || username == null || password == null) {
+            System.err.println("Error: Required configuration values are not set in .env file.");
+            System.err.println("Please ensure .env file contains: API_KEY_ID, API_SECRET_KEY, DB_URL, DB_USERNAME, DB_PASSWORD");
+            System.exit(1);
+        }
 
         Request request = new Request.Builder()
                 .url(API_URL + "/v2/assets")
