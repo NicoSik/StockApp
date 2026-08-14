@@ -3,7 +3,7 @@
 A stock watcher with a Robinhood-style interface: live watchlists, scrubable
 price charts, and a paper portfolio that never touches a broker.
 
-Java 17 · Javalin 6 · PostgreSQL · Alpaca market data · a vanilla-JS front end
+Java 17 · Javalin 7 · PostgreSQL · Alpaca market data · a vanilla-JS front end
 with no build step.
 
 ```
@@ -47,7 +47,7 @@ Everything is local. No order ever reaches a broker.
 
 | | |
 |---|---|
-| Java | **17 or newer** (Javalin 6 is compiled for 17) |
+| Java | **17 or newer** (Javalin 7 is compiled for 17) |
 | Maven | not required — the repo ships a wrapper |
 | PostgreSQL | 12+ |
 | Alpaca account | free paper account works; a data subscription unlocks more |

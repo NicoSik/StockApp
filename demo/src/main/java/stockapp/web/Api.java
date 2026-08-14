@@ -1,6 +1,6 @@
 package stockapp.web;
 
-import io.javalin.Javalin;
+import io.javalin.config.RoutesConfig;
 import io.javalin.http.Context;
 import io.javalin.http.HttpStatus;
 import stockapp.Config;
@@ -67,42 +67,42 @@ public final class Api {
         this.alpaca = alpaca;
     }
 
-    public void register(Javalin app) {
-        registerErrorHandlers(app);
+    public void register(RoutesConfig routes) {
+        registerErrorHandlers(routes);
 
-        app.get("/api/health", this::health);
-        app.get("/api/meta", this::meta);
-        app.get("/api/market/clock", ctx -> ctx.json(marketData.clock()));
+        routes.get("/api/health", this::health);
+        routes.get("/api/meta", this::meta);
+        routes.get("/api/market/clock", ctx -> ctx.json(marketData.clock()));
 
-        app.get("/api/search", this::search);
-        app.get("/api/quotes", this::quotes);
-        app.get("/api/rows", this::rows);
-        app.get("/api/stocks/{symbol}", this::stockDetail);
-        app.get("/api/stocks/{symbol}/candles", this::candles);
+        routes.get("/api/search", this::search);
+        routes.get("/api/quotes", this::quotes);
+        routes.get("/api/rows", this::rows);
+        routes.get("/api/stocks/{symbol}", this::stockDetail);
+        routes.get("/api/stocks/{symbol}/candles", this::candles);
 
-        app.get("/api/watchlists", ctx -> ctx.json(watchlists.listAll()));
-        app.post("/api/watchlists", this::createWatchlist);
-        app.patch("/api/watchlists/{id}", this::renameWatchlist);
-        app.delete("/api/watchlists/{id}", this::deleteWatchlist);
-        app.post("/api/watchlists/{id}/items", this::addWatchlistItem);
-        app.delete("/api/watchlists/{id}/items/{symbol}", this::removeWatchlistItem);
-        app.put("/api/watchlists/{id}/order", this::reorderWatchlist);
+        routes.get("/api/watchlists", ctx -> ctx.json(watchlists.listAll()));
+        routes.post("/api/watchlists", this::createWatchlist);
+        routes.patch("/api/watchlists/{id}", this::renameWatchlist);
+        routes.delete("/api/watchlists/{id}", this::deleteWatchlist);
+        routes.post("/api/watchlists/{id}/items", this::addWatchlistItem);
+        routes.delete("/api/watchlists/{id}/items/{symbol}", this::removeWatchlistItem);
+        routes.put("/api/watchlists/{id}/order", this::reorderWatchlist);
 
-        app.get("/api/portfolio", ctx -> ctx.json(portfolio.summary()));
-        app.get("/api/portfolio/history", this::portfolioHistory);
-        app.get("/api/portfolio/trades", this::portfolioTrades);
-        app.post("/api/portfolio/orders", this::placeOrder);
-        app.post("/api/portfolio/reset", this::resetPortfolio);
+        routes.get("/api/portfolio", ctx -> ctx.json(portfolio.summary()));
+        routes.get("/api/portfolio/history", this::portfolioHistory);
+        routes.get("/api/portfolio/trades", this::portfolioTrades);
+        routes.post("/api/portfolio/orders", this::placeOrder);
+        routes.post("/api/portfolio/reset", this::resetPortfolio);
 
-        app.get("/api/alerts", ctx -> ctx.json(alerts.listAll()));
-        app.post("/api/alerts", this::createAlert);
-        app.delete("/api/alerts/{id}", this::deleteAlert);
-        app.post("/api/alerts/evaluate", ctx -> ctx.json(alertService.evaluate()));
+        routes.get("/api/alerts", ctx -> ctx.json(alerts.listAll()));
+        routes.post("/api/alerts", this::createAlert);
+        routes.delete("/api/alerts/{id}", this::deleteAlert);
+        routes.post("/api/alerts/evaluate", ctx -> ctx.json(alertService.evaluate()));
 
         // Registered last, so it only catches paths no real route matched.
         // Without it the SPA fallback would answer an unknown /api/... GET with
         // index.html, and the client would try to parse HTML as JSON.
-        app.get("/api/*", ctx -> {
+        routes.get("/api/*", ctx -> {
             throw new NotFound("No such endpoint: " + ctx.path());
         });
     }
@@ -373,23 +373,23 @@ public final class Api {
      * Maps exceptions to status codes and a uniform {@code {"error": "..."}}
      * body, so the client has exactly one shape to handle.
      */
-    private void registerErrorHandlers(Javalin app) {
-        app.exception(Json.BadRequest.class, (e, ctx) ->
+    private void registerErrorHandlers(RoutesConfig routes) {
+        routes.exception(Json.BadRequest.class, (e, ctx) ->
                 fail(ctx, HttpStatus.BAD_REQUEST, e.getMessage()));
 
-        app.exception(NotFound.class, (e, ctx) ->
+        routes.exception(NotFound.class, (e, ctx) ->
                 fail(ctx, HttpStatus.NOT_FOUND, e.getMessage()));
 
         // A rejected order is a valid request the portfolio refused, not a bug.
-        app.exception(PortfolioRepo.TradeRejected.class, (e, ctx) ->
+        routes.exception(PortfolioRepo.TradeRejected.class, (e, ctx) ->
                 fail(ctx, HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage()));
 
-        app.exception(AlpacaException.class, (e, ctx) -> {
+        routes.exception(AlpacaException.class, (e, ctx) -> {
             System.out.println("[api] upstream failure: " + e.getMessage());
             fail(ctx, HttpStatus.BAD_GATEWAY, "The market data provider is not responding. Try again shortly.");
         });
 
-        app.exception(Exception.class, (e, ctx) -> {
+        routes.exception(Exception.class, (e, ctx) -> {
             // Unexpected: log the stack trace for us, send a plain message out.
             System.err.println("[api] unhandled error on " + ctx.method() + " " + ctx.path());
             e.printStackTrace();

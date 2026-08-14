@@ -45,6 +45,12 @@ injection container. With a dozen objects, a constructor call you can read top
 to bottom is clearer than annotations, and startup order is exactly the order
 things must happen: credentials, then database, then network.
 
+One Javalin 7 detail that surprises people coming from 6: routing lives on the
+config object, not on the `Javalin` instance. There is no `app.get(...)`.
+Handlers and exception mappings are registered against `config.routes` inside
+the `Javalin.create` lambda, which is why `Api` is constructed before the server
+and takes a `RoutesConfig` rather than a `Javalin`.
+
 ## What is stored and what is not
 
 This is the decision most of the design hangs off.
@@ -142,8 +148,8 @@ all, which is why every job body is wrapped.
 | Was | Now |
 |---|---|
 | One `java.sql.Connection` shared across Javalin's thread pool | HikariCP; a connection per query. `Connection` is not thread-safe, and concurrent requests could interleave on it |
-| `maven.compiler.source 1.8` against Javalin 6 (Java 17 bytecode) | `release 17`. The old pom could not compile — this is why the server would not start |
-| logback 1.2.x with Javalin 6's SLF4J 2.x API | logback 1.5.x. 1.2 implements only the SLF4J 1.7 SPI and binds silently to a no-op logger |
+| `maven.compiler.source 1.8` against Javalin (Java 17 bytecode) | `release 17`. The old pom could not compile — this is why the server would not start |
+| logback 1.2.x with Javalin's SLF4J 2.x API | logback 1.5.x. 1.2 implements only the SLF4J 1.7 SPI and binds silently to a no-op logger |
 | HTML built by string concatenation in `main.java`, symbols interpolated into markup | JSON API + escaped client rendering |
 | `stock_price` with no price columns; `getPriceHistory` returning nulls | Real OHLCV with a `(stock_id, date)` unique index for upserts |
 | `PopulateDB` inserting `market` into a schema that lacked the column | `V001` backfills it |

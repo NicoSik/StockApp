@@ -20,7 +20,11 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <exec.mainClass>stockapp.App</exec.mainClass>
 
-        <javalin.version>6.3.0</javalin.version>
+        <!-- Javalin 7 is the first line built on Jetty 12. Jetty 11 is
+             end-of-life and still carries two high-severity advisories (HTTP
+             request smuggling in jetty-http, Digest auth bypass in
+             jetty-security) that will never be fixed there. -->
+        <javalin.version>7.2.3</javalin.version>
         <!-- 42.7.4 carries three HIGH advisories: a SCRAM PBKDF2 CPU-exhaustion
              DoS and two channel-binding authentication downgrades. 42.7.13 is a
              drop-in patch release with none. -->
@@ -33,28 +37,8 @@
              EL injection). Both need attacker control of the logback config,
              which ships inside the jar, but the fix is free. -->
         <logback.version>1.5.38</logback.version>
-        <!-- Javalin 6.3.0 resolves Jetty 11.0.23 transitively; 11.0.26 is the
-             last 11.x and picks up the fixes available in that line. One
-             moderate (HTTP authority/host mismatch) remains and is not fixed in
-             Jetty 11 at all - it needs Jetty 12, which means Javalin 7 and an
-             API migration. Not worth it for a service bound to localhost. -->
-        <jetty.version>11.0.26</jetty.version>
         <junit.version>5.11.3</junit.version>
     </properties>
-
-    <dependencyManagement>
-        <dependencies>
-            <!-- Pins every Jetty artifact Javalin pulls in, rather than listing
-                 the dozen of them individually. -->
-            <dependency>
-                <groupId>org.eclipse.jetty</groupId>
-                <artifactId>jetty-bom</artifactId>
-                <version>${jetty.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
 
     <dependencies>
         <!-- HTTP server + routing -->

@@ -71,6 +71,8 @@ public final class App {
         Scheduler scheduler = new Scheduler(alertService, importer, stocks, watchlists);
         scheduler.start();
 
+        Api api = new Api(stocks, watchlists, alerts, marketData, portfolio, alertService, alpaca);
+
         Javalin app = Javalin.create(config -> {
             config.jsonMapper(new GsonMapper());
             config.staticFiles.add(staticFiles -> {
@@ -82,10 +84,12 @@ public final class App {
             // for any unmatched path is what makes /AAPL and /portfolio work as
             // real URLs - shareable, bookmarkable, and correct on reload.
             config.spaRoot.addFile("/", "/public/index.html", Location.CLASSPATH);
-            config.showJavalinBanner = false;
-        });
+            config.startup.showJavalinBanner = false;
 
-        new Api(stocks, watchlists, alerts, marketData, portfolio, alertService, alpaca).register(app);
+            // Javalin 7 moved routing off the Javalin instance and into the
+            // config block; handlers are registered against config.routes.
+            api.register(config.routes);
+        });
 
         app.start(Config.SERVER_PORT);
 
