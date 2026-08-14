@@ -282,6 +282,7 @@ function detailMarkup(detail) {
             <canvas class="chart__canvas" id="d-canvas" tabindex="0" role="img"
                     aria-label="Price chart for ${escapeHtml(stock.symbol)}. Use arrow keys to read values."></canvas>
             <div class="chart__tooltip" id="d-tooltip" aria-hidden="true"></div>
+            <div class="chart__price-tag" id="d-price-tag" aria-hidden="true"></div>
             <div class="chart__empty" id="d-chart-empty" hidden></div>
         </div>
 
@@ -362,6 +363,8 @@ function bindDetail(detail) {
 
     state.chart = new Chart(qs('#d-canvas'), {
         tooltip: qs('#d-tooltip'),
+        priceTag: qs('#d-price-tag'),
+        formatValue: (value) => fmt.price(value),
         onScrub: (info) => {
             if (info) {
                 updatePriceLine(info.price, info.change, info.changePercent, fmt.tooltipLabel(info.point.time, state.range));
@@ -675,6 +678,8 @@ async function renderPortfolioView() {
         emptyEl.hidden = true;
         state.chart = new Chart(canvas, {
             tooltip: qs('#p-tooltip'),
+            priceTag: qs('#p-price-tag'),
+            formatValue: (value) => fmt.usdCompact(value),
             onScrub: (info) => {
                 if (info) {
                     setText(qs('#p-total'), fmt.usd(info.price));
@@ -718,6 +723,7 @@ function portfolioMarkup(summary, trades) {
             <canvas class="chart__canvas" id="p-canvas" tabindex="0" role="img"
                     aria-label="Portfolio value over the past year"></canvas>
             <div class="chart__tooltip" id="p-tooltip" aria-hidden="true"></div>
+            <div class="chart__price-tag" id="p-price-tag" aria-hidden="true"></div>
             <div class="chart__empty" id="p-chart-empty">
                 Your value chart appears here once you have made a trade.
             </div>

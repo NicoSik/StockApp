@@ -36,11 +36,15 @@ export class Chart {
      * @param {HTMLCanvasElement} canvas
      * @param {{ onScrub?: (info: object|null) => void, tooltip?: HTMLElement }} options
      */
-    constructor(canvas, { onScrub, tooltip } = {}) {
+    constructor(canvas, { onScrub, tooltip, priceTag, formatValue } = {}) {
         this.canvas = canvas;
         this.context = canvas.getContext('2d');
         this.onScrub = onScrub ?? (() => {});
         this.tooltipEl = tooltip ?? null;
+        this.priceTagEl = priceTag ?? null;
+        // How the value at the cursor is written: dollars on a stock chart,
+        // kroner on the portfolio one.
+        this.formatValue = formatValue ?? ((value) => String(value));
 
         this.points = [];
         this.baseline = null;
@@ -86,6 +90,10 @@ export class Chart {
         this.baseline = Number.isFinite(baseline) ? baseline : null;
         this.range = range ?? this.range;
         this.activeIndex = null;
+        // Clear the labels too, not just the index. Switching range with the
+        // cursor still on the chart would otherwise leave the old value pinned
+        // beside a header that has already reset to the live price.
+        this.updateTooltip();
         this.publishTrend();
 
         if (animate && !prefersReducedMotion() && this.points.length > 1) {
@@ -314,6 +322,16 @@ export class Chart {
         ctx.restore();
     }
 
+    /**
+     * The full crosshair: a vertical line at the cursor and a horizontal one at
+     * the value under it.
+     *
+     * <p>The horizontal line is what makes a chart readable at a glance - it
+     * carries the eye from the point to the value, which is otherwise only
+     * legible in the header far above. It is drawn dashed and in the border
+     * colour so it reads as chrome rather than as data, and it stops short of
+     * the price tag so the two do not overlap.
+     */
     drawCrosshair(ctx, domain, color) {
         const index = this.activeIndex;
         const point = this.points[index];
@@ -324,10 +342,22 @@ export class Chart {
         ctx.save();
         ctx.strokeStyle = cssVar('--border-strong') || 'rgba(255,255,255,0.2)';
         ctx.lineWidth = 1;
+
+        // Vertical: full height, solid, marks the moment in time.
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, this.height);
         ctx.stroke();
+
+        // Horizontal: dashed, marks the value. Reserves room on the right for
+        // the price tag rather than running underneath it.
+        const tagWidth = this.priceTagEl ? this.priceTagEl.offsetWidth + 10 : 0;
+        ctx.setLineDash([3, 4]);
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(Math.max(0, this.width - tagWidth), y);
+        ctx.stroke();
+        ctx.setLineDash([]);
 
         // A ring in the page background colour lifts the dot off the line.
         ctx.fillStyle = cssVar('--bg') || '#000';
@@ -380,11 +410,13 @@ export class Chart {
 
     setActiveIndex(index) {
         if (index === this.activeIndex) return;
+        const point = this.points[index];
+        if (!point) return;
+
         this.activeIndex = index;
         this.updateTooltip();
         this.render();
 
-        const point = this.points[index];
         const reference = this.referencePrice();
         const change = reference === null ? null : point.close - reference;
         this.onScrub({
@@ -397,20 +429,36 @@ export class Chart {
     }
 
     updateTooltip() {
-        if (!this.tooltipEl) return;
-        if (this.activeIndex === null) {
-            this.tooltipEl.dataset.visible = 'false';
+        const point = this.activeIndex === null ? null : this.points[this.activeIndex];
+        // The index can outlive the data it pointed at: a range switch or a
+        // refresh replaces `points` while a cursor is still parked on the
+        // chart. drawCrosshair already tolerates that; this must too, or the
+        // labels throw on a stale index.
+        if (!point) {
+            if (this.tooltipEl) this.tooltipEl.dataset.visible = 'false';
+            if (this.priceTagEl) this.priceTagEl.dataset.visible = 'false';
             return;
         }
-        const point = this.points[this.activeIndex];
-        this.tooltipEl.textContent = tooltipLabel(point.time, this.range);
-        this.tooltipEl.dataset.visible = 'true';
 
-        // Keep the label inside the canvas at both ends.
-        const x = this.xAt(this.activeIndex);
-        const halfWidth = this.tooltipEl.offsetWidth / 2;
-        const clamped = Math.max(halfWidth, Math.min(this.width - halfWidth, x));
-        this.tooltipEl.style.left = `${clamped}px`;
+        if (this.tooltipEl) {
+            this.tooltipEl.textContent = tooltipLabel(point.time, this.range);
+            this.tooltipEl.dataset.visible = 'true';
+            // Keep the label inside the canvas at both ends.
+            const x = this.xAt(this.activeIndex);
+            const halfWidth = this.tooltipEl.offsetWidth / 2;
+            this.tooltipEl.style.left = `${Math.max(halfWidth, Math.min(this.width - halfWidth, x))}px`;
+        }
+
+        if (this.priceTagEl) {
+            this.priceTagEl.textContent = this.formatValue(point.close);
+            this.priceTagEl.dataset.visible = 'true';
+            // Pinned to the right edge at the crosshair's height, the way a
+            // price axis behaves, and clamped so it never leaves the plot.
+            const y = this.yAt(point.close, this.domain());
+            const halfHeight = this.priceTagEl.offsetHeight / 2;
+            this.priceTagEl.style.top =
+                `${Math.max(halfHeight, Math.min(this.height - halfHeight, y))}px`;
+        }
     }
 
     destroy() {
