@@ -1,0 +1,148 @@
+/* ==========================================================================
+   Design tokens
+   --------------------------------------------------------------------------
+   One source of truth for colour, type, spacing and motion.
+
+   Three themes ship: dark (default), light, and a colour-blind-safe variant
+   that swaps the green/red profit language for blue/orange. Direction is
+   expressed through --up / --down everywhere, so switching palettes never
+   requires touching a component.
+   ========================================================================== */
+
+:root {
+    /* --- Surface ramp. Each step is a real elevation, not a random grey. --- */
+    --bg: #0a0a0c;
+    --surface: #131317;
+    --surface-raised: #1b1b21;
+    --surface-hover: #22222a;
+    --border: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.16);
+
+    /* --- Text ramp --- */
+    --text: #f4f4f6;
+    --text-secondary: #a1a1ab;
+    --text-tertiary: #6c6c78;
+
+    /* --- Direction. The only two colours that carry meaning. --- */
+    --up: #00c805;
+    --up-soft: rgba(0, 200, 5, 0.14);
+    --down: #ff4d3d;
+    --down-soft: rgba(255, 77, 61, 0.14);
+    --neutral: #8b8b97;
+    --neutral-soft: rgba(139, 139, 151, 0.14);
+
+    /* --- Accent, used only for focus and interactive chrome --- */
+    --accent: #6f8dff;
+    --accent-soft: rgba(111, 141, 255, 0.16);
+
+    --warn: #ffb020;
+    --warn-soft: rgba(255, 176, 32, 0.14);
+
+    /* --- Type --- */
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
+
+    --text-xs: 0.6875rem;   /* 11px - labels, chips */
+    --text-sm: 0.8125rem;   /* 13px - secondary copy */
+    --text-base: 0.9375rem; /* 15px - body */
+    --text-lg: 1.125rem;    /* 18px - section headings */
+    --text-xl: 1.5rem;      /* 24px - card figures */
+    --text-hero: clamp(2.25rem, 5vw, 3.25rem); /* the price */
+
+    /* --- Spacing: a 4px scale --- */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 48px;
+
+    --radius-sm: 6px;
+    --radius: 10px;
+    --radius-lg: 16px;
+    --radius-pill: 999px;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.6);
+
+    /* --- Motion. Referenced by name so reduced-motion can zero them out. --- */
+    --ease: cubic-bezier(0.32, 0.72, 0, 1);
+    --duration-fast: 120ms;
+    --duration: 220ms;
+    --duration-slow: 420ms;
+
+    --rail-width: 300px;
+    --topbar-height: 60px;
+}
+
+/* --------------------------------------------------------------- light theme */
+
+[data-theme="light"] {
+    --bg: #ffffff;
+    --surface: #f6f6f8;
+    --surface-raised: #ffffff;
+    --surface-hover: #eeeef2;
+    --border: rgba(0, 0, 0, 0.09);
+    --border-strong: rgba(0, 0, 0, 0.18);
+
+    --text: #0d0d12;
+    --text-secondary: #5b5b68;
+    --text-tertiary: #8b8b97;
+
+    /* Both directions are darkened: the dark-theme green fails contrast on white. */
+    --up: #018d2c;
+    --up-soft: rgba(1, 141, 44, 0.12);
+    --down: #d92d20;
+    --down-soft: rgba(217, 45, 32, 0.12);
+
+    --accent: #3b5bdb;
+    --accent-soft: rgba(59, 91, 219, 0.12);
+    --warn: #b45309;
+    --warn-soft: rgba(180, 83, 9, 0.12);
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+    --shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.16);
+}
+
+/* ---------------------------------------------------- colour-blind-safe mode
+   Roughly 1 in 12 men cannot reliably separate red from green, which is an
+   unfortunate property for an interface that encodes gain and loss in exactly
+   that pair. Blue/orange survives every common form of colour vision
+   deficiency. Shape and sign still carry the meaning too - the arrow and the
+   +/- are never removed. */
+
+[data-palette="accessible"] {
+    --up: #3b82f6;
+    --up-soft: rgba(59, 130, 246, 0.16);
+    --down: #f97316;
+    --down-soft: rgba(249, 115, 22, 0.16);
+}
+
+[data-theme="light"][data-palette="accessible"] {
+    --up: #1d4ed8;
+    --up-soft: rgba(29, 78, 216, 0.12);
+    --down: #c2410c;
+    --down-soft: rgba(194, 65, 12, 0.12);
+}
+
+/* ------------------------------------------------------------ reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --duration-fast: 0ms;
+        --duration: 0ms;
+        --duration-slow: 0ms;
+    }
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
