@@ -1,34 +1,26 @@
--- Database: Trading
-
--- DROP DATABASE IF EXISTS "Trading";
-	
--- DROP TABLE IF EXISTS stock_price;
--- DROP TABLE IF EXISTS stock;
--- DROP TABLE IF EXISTS watchlist;
--- DROP TABLE IF EXISTS users;
-CREATE TABLE IF NOT EXISTS stock(
-    id SERIAL PRIMARY KEY,
-    symbol TEXT NOT NULL UNIQUE,
-    company TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS stock_price(
-    id SERIAL PRIMARY KEY,
-    stock_id INTEGER,
-    date DATE NOT NULL,  -- 
-    volume INT NOT NULL,
-    FOREIGN KEY (stock_id) REFERENCES stock(id)
-);
-
-CREATE TABLE IF NOT EXISTS watchlist(
-    id TEXT PRIMARY KEY,
-    name TEXT
-);
-
-CREATE TABLE IF NOT EXISTS users(  
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL
-);
-	
-	
-	
+-- ===========================================================================
+-- This file is no longer the schema.
+--
+-- The schema now lives in versioned migrations that the app applies itself on
+-- startup, so there is nothing to run by hand:
+--
+--     demo/src/main/resources/db/migration/
+--         V001__baseline.sql          stock, stock_price
+--         V002__stock_price_ohlcv.sql real OHLCV columns + the upsert index
+--         V003__watchlists.sql        watchlist, watchlist_item
+--         V004__paper_portfolio.sql   portfolio, trade, position
+--         V005__price_alerts.sql      price_alert
+--         V006__search_indexes.sql    symbol / company search indexes
+--
+-- Applied migrations are recorded in the `schema_migration` table; each runs
+-- exactly once, in its own transaction. See stockapp.Db#migrate.
+--
+-- To add a schema change: create the next V0NN__name.sql file and append its
+-- filename to the MIGRATIONS array in Db.java. Never edit a migration that has
+-- already run - write a new one.
+--
+-- The original contents of this file described an earlier schema in which
+-- `stock_price` had no price columns at all, which is why every price in the
+-- old UI rendered as "N/A". It is kept only as this pointer so that nothing
+-- reintroduces it.
+-- ===========================================================================
