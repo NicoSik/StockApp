@@ -38,6 +38,7 @@ public final class Db implements AutoCloseable {
             "V004__paper_portfolio.sql",
             "V005__price_alerts.sql",
             "V006__search_indexes.sql",
+            "V007__aggregator.sql",
     };
 
     private final HikariDataSource dataSource;

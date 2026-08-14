@@ -17,9 +17,15 @@ export class ApiError extends Error {
 
 async function request(path, options = {}) {
     let response;
+    // FormData must set its own Content-Type, because only the browser knows
+    // the multipart boundary. Declaring JSON here would corrupt the upload.
+    const isMultipart = options.body instanceof FormData;
     try {
         response = await fetch(path, {
-            headers: { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}) },
+            headers: {
+                Accept: 'application/json',
+                ...(options.body && !isMultipart ? { 'Content-Type': 'application/json' } : {}),
+            },
             ...options,
         });
     } catch (cause) {
@@ -82,6 +88,18 @@ export const api = {
     trades: (limit = 25) => request(`/api/portfolio/trades${query({ limit })}`),
     order: (symbol, side, quantity) => post('/api/portfolio/orders', { symbol, side, quantity }),
     resetPortfolio: () => post('/api/portfolio/reset'),
+
+    // --- Multi-broker aggregator (real holdings, NOK) ----------------------
+    holdings: () => request('/api/holdings'),
+    holdingsHistory: () => request('/api/holdings/history'),
+    previewImport: (file) => {
+        const form = new FormData();
+        form.append('file', file);
+        return request('/api/holdings/import/preview', { method: 'POST', body: form });
+    },
+    commitImport: (previewId, overrides, skip) =>
+        post('/api/holdings/import/commit', { previewId, overrides, skip }),
+    lookupInstrument: (q, currency) => request(`/api/holdings/lookup${query({ q, currency })}`),
 
     alerts: () => request('/api/alerts'),
     createAlert: (symbol, direction, threshold) => post('/api/alerts', { symbol, direction, threshold }),

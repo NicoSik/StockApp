@@ -3,16 +3,25 @@ package stockapp;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
 import stockapp.alpaca.AlpacaClient;
+import stockapp.market.InstrumentResolver;
+import stockapp.market.YahooClient;
 import stockapp.model.Stock;
+import stockapp.repo.AccountRepo;
 import stockapp.repo.AlertRepo;
+import stockapp.repo.FxRepo;
+import stockapp.repo.InstrumentRepo;
 import stockapp.repo.PortfolioRepo;
 import stockapp.repo.StockRepo;
 import stockapp.repo.WatchlistRepo;
 import stockapp.service.AlertService;
+import stockapp.service.FxService;
+import stockapp.service.ImportService;
 import stockapp.service.Importer;
 import stockapp.service.MarketData;
 import stockapp.service.PortfolioService;
 import stockapp.service.Scheduler;
+import stockapp.service.ValuationService;
+import stockapp.web.AggregatorApi;
 import stockapp.web.Api;
 import stockapp.web.GsonMapper;
 
@@ -52,6 +61,19 @@ public final class App {
         PortfolioService portfolio = new PortfolioService(portfolios, stocks, marketData, importer, PORTFOLIO_NAME);
         AlertService alertService = new AlertService(alerts, marketData);
 
+        // --- Multi-broker aggregator ---------------------------------------
+        // Separate from everything above: real holdings imported from DNB and
+        // Nordnet, valued in NOK. Alpaca cannot price Oslo Børs (it resolves
+        // "DNB" to Dun & Bradstreet), so this half uses Yahoo and Norges Bank.
+        AccountRepo accountRepo = new AccountRepo(db);
+        InstrumentRepo instrumentRepo = new InstrumentRepo(db);
+        FxRepo fxRepo = new FxRepo(db);
+        YahooClient yahoo = new YahooClient();
+        FxService fxService = new FxService(fxRepo);
+        InstrumentResolver resolver = new InstrumentResolver(yahoo);
+        ImportService importService = new ImportService(accountRepo, instrumentRepo, resolver);
+        ValuationService valuation = new ValuationService(accountRepo, yahoo, fxService);
+
         portfolios.ensurePortfolio(PORTFOLIO_NAME, new BigDecimal(Config.PAPER_STARTING_CASH));
         seedWatchlist(stocks, watchlists);
 
@@ -72,6 +94,7 @@ public final class App {
         scheduler.start();
 
         Api api = new Api(stocks, watchlists, alerts, marketData, portfolio, alertService, alpaca);
+        AggregatorApi aggregatorApi = new AggregatorApi(accountRepo, instrumentRepo, importService, valuation, yahoo);
 
         Javalin app = Javalin.create(config -> {
             config.jsonMapper(new GsonMapper());
@@ -88,6 +111,8 @@ public final class App {
 
             // Javalin 7 moved routing off the Javalin instance and into the
             // config block; handlers are registered against config.routes.
+            aggregatorApi.register(config.routes);
+            // Registered last because Api ends with a /api/* catch-all.
             api.register(config.routes);
         });
 

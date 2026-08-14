@@ -4,9 +4,15 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonSerializer;
 import com.google.gson.JsonSyntaxException;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 /** JSON encoding for responses and lenient reading of request bodies. */
@@ -16,9 +22,24 @@ public final class Json {
      * Nulls are serialised rather than dropped. A missing {@code change} field
      * and a null one mean different things to the client - "not sent" versus
      * "no previous close to compare against" - and the UI branches on it.
+     *
+     * <p>{@code java.time} types need explicit adapters. Gson serialises unknown
+     * types by reflecting over their fields, and since Java 17 the platform
+     * modules are strongly encapsulated, so reaching into {@code LocalDate}
+     * throws rather than producing {@code {"year":2026,"month":8,...}} - which
+     * would have been the wrong shape anyway. ISO-8601 strings are what the
+     * browser wants.
      */
     private static final Gson GSON = new GsonBuilder()
             .serializeNulls()
+            .registerTypeAdapter(LocalDate.class,
+                    (JsonSerializer<LocalDate>) (date, type, ctx) ->
+                            new JsonPrimitive(DateTimeFormatter.ISO_LOCAL_DATE.format(date)))
+            .registerTypeAdapter(Instant.class,
+                    (JsonSerializer<Instant>) (instant, type, ctx) -> new JsonPrimitive(instant.toString()))
+            .registerTypeAdapter(LocalDateTime.class,
+                    (JsonSerializer<LocalDateTime>) (dateTime, type, ctx) ->
+                            new JsonPrimitive(DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(dateTime)))
             .create();
 
     private Json() {

@@ -10,6 +10,7 @@ import { api, ApiError } from './api.js';
 import { Chart } from './chart.js';
 import { drawSparkline } from './sparkline.js';
 import { SearchPalette } from './palette.js';
+import { renderHoldingsView } from './holdings.js';
 import { toast } from './toast.js';
 import { escapeHtml, qs, qsa, setDirectionClass, setHtml, setText } from './dom.js';
 import * as fmt from './format.js';
@@ -85,6 +86,7 @@ function renderClock(clock) {
 function parseRoute(pathname) {
     const path = pathname.replace(/^\/+|\/+$/g, '');
     if (path === 'portfolio') return { name: 'portfolio' };
+    if (path === 'holdings') return { name: 'holdings' };
     if (path === '') return { name: 'home' };
     return { name: 'detail', symbol: decodeURIComponent(path).toUpperCase() };
 }
@@ -114,6 +116,7 @@ function handleRoute() {
 
     teardownChart();
     if (route.name === 'portfolio') renderPortfolioView();
+    else if (route.name === 'holdings') renderHoldingsView(main);
     else renderDetailView(route.symbol);
 
     markActiveRow();
