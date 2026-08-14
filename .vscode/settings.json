@@ -1,9 +1,23 @@
 {
-    "java.configuration.updateBuildConfiguration": "interactive",
+    // Credentials used to live here in `terminal.integrated.env.windows`, which
+    // is a tracked file. They now live in .env (gitignored) and are read by
+    // stockapp.Config, so there is nothing secret in this file.
+    "java.configuration.updateBuildConfiguration": "automatic",
     "java.debug.settings.onBuildFailureProceed": true,
-    "terminal.integrated.env.windows": {
-        "DB_URL": "jdbc:postgresql://localhost:5433/postgres?charSet=UTF-8",
-        "DB_USERNAME": "postgres",
-        "DB_PASSWORD": "Cypisek00"
+
+    // Point the VS Code Java extension at a JDK 17+ runtime. Javalin 6 is
+    // compiled for 17; building this project with the older JDK 16 that used to
+    // be on JAVA_HOME fails with "Text Blocks are only available with source
+    // level 15 and above" and leaves broken classes in target/.
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-20",
+            "path": "C:\\Program Files\\Java\\jdk-20",
+            "default": true
+        }
+    ],
+    "java.format.settings.url": "",
+    "files.exclude": {
+        "**/target": true
     }
 }

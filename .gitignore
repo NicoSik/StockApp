@@ -1,22 +1,40 @@
- 
-# Ignore compiled class files
-*.class
+# --- Secrets ---------------------------------------------------------------
+# Never commit these. .env.example is the tracked template and holds no values.
+.env
+.env.*
+!.env.example
+config.properties
+application-local.properties
 
-# Ignore the target directory (for Maven or similar builds)
+# --- Build output ----------------------------------------------------------
 target/
+*.class
+*.jar
+!.mvn/wrapper/*.jar
 
-# Ignore log files
+# --- Maven wrapper ---------------------------------------------------------
+# The wrapper scripts and properties ARE tracked on purpose: they are what lets
+# a fresh clone build without Maven installed. Only the downloaded distribution
+# is ignored, and that lives in ~/.m2, outside the repository.
+
+# --- Logs ------------------------------------------------------------------
 *.log
+logs/
 
-# Ignore IDE-specific files
+# --- Editors and IDEs ------------------------------------------------------
+# Note: gitignore has no trailing-comment syntax. A line like
+#   Thumbs.db   # Windows
+# is the literal pattern "Thumbs.db   # Windows" and matches nothing, which is
+# why the entries below each sit on their own line.
 *.iml
 .idea/
 *.sublime-project
 *.sublime-workspace
+.classpath
+.project
+.settings/
 
-# Ignore OS-specific files
-.DS_Store          # macOS
-Thumbs.db         # Windows
-
-# Ignore environment variables or configuration files
-.env
+# --- OS --------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
