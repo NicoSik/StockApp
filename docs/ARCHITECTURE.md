@@ -156,6 +156,66 @@ all, which is why every job body is wrapped.
 | `UpdateDB` with `SELECT your_column FROM ?` (table names cannot be bound) | Deleted; it was dead code |
 | `Scheduler.schedulePriceUpdate` dereferencing a null field | Rewritten with DST-safe daily rescheduling |
 
+## The aggregator
+
+A second, separate world: real holdings imported from brokers, valued in NOK.
+It shares nothing with the simulated portfolio — separate tables, separate
+endpoints, separate screen — which is what made it additive rather than a
+rewrite.
+
+```
+importer/     NordnetParser, DnbParser, XlsxReader
+market/       YahooClient, InstrumentResolver
+service/      ImportService, ValuationService, FxService
+repo/         AccountRepo, InstrumentRepo, FxRepo
+web/          AggregatorApi   (/api/holdings/*)
+```
+
+### Why Alpaca isn't used here
+
+Alpaca is US equities only, and matching a Norwegian portfolio against it is
+actively dangerous rather than merely incomplete: it resolves `DNB` to Dun &
+Bradstreet, has no entry for Norsk Hydro, and returns Equinor's NYSE ADR rather
+than the Oslo listing. Yahoo has the real Oslo and Stockholm listings in their
+own currencies. Alpaca still powers the watchlist and paper portfolio.
+
+### Identity without an ISIN
+
+Neither export carries one, so identity is inferred — and inference needs a
+check. Three things make it safe:
+
+1. **Currency pins the exchange.** A NOK holding is on Oslo Børs, SEK is
+   Stockholm. That eliminates most wrong candidates before a price is fetched.
+2. **Derivatives are filtered out.** Yahoo's search returns options contracts,
+   and an option often trades near its underlying — so it can pass a price
+   check. Filtering on instrument type and OCC symbol shape is what makes the
+   price check trustworthy rather than merely usually right.
+3. **The export's own price is the proof.** If the resolved symbol's live price
+   disagrees with the broker's, the match is refused and handed to a human.
+
+Only a settled mapping is remembered as an alias. Caching an unverified guess
+would skip the price check on every future import — which is how a wrong match
+becomes permanent and invisible.
+
+### Snapshots, not mutations
+
+An import writes a whole dated snapshot. Re-importing replaces that date
+cleanly, an undo is a delete, and a value history accumulates without needing
+transaction data — which matters, because neither broker exports transactions
+this app could rebuild history from. DNB's "Mine ordre" is twelve months of
+orders and cannot describe current positions, so it is detected and rejected.
+
+### Two valuation paths, reported separately
+
+An instrument with a verified symbol is priced live and converted at the Norges
+Bank rate. Everything else keeps the value its broker reported, with the date
+attached. The split is surfaced in the total rather than blurred, because
+presenting a three-week-old fund NAV as current is a small lie that compounds.
+
+Norges Bank quotes SEK and DKK **per hundred**, flagged by a `UNIT_MULT`
+column. Rates are normalised to "1 unit = n NOK" on the way in; taking
+`OBS_VALUE` at face value values a Swedish holding at a hundred times its worth.
+
 ## Front end
 
 No framework and no build step. The whole client is ES modules served straight

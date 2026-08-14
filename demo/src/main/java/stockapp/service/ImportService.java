@@ -102,9 +102,12 @@ public final class ImportService {
             ParsedHolding holding = export.holdings().get(i);
             String alias = aliasFor(holding);
 
+            // A remembered mapping short-circuits the lookup - but only if it
+            // was actually verified. An unverified alias is a guess someone
+            // declined to endorse, and treating it as settled would make a
+            // rejected match permanent and invisible on every later import.
             Optional<InstrumentRepo.Instrument> known = instruments.findByAlias(export.broker(), alias);
-            if (known.isPresent()) {
-                // Already mapped: skip the lookup entirely.
+            if (known.isPresent() && known.get().verified()) {
                 rows.add(new PreviewRow(i, holding.name(), holding.ticker(), holding.currency(),
                         holding.quantity(), holding.avgCost(), holding.lastPrice(), holding.valueNok(),
                         "CONFIRMED", known.get().symbol(), known.get().name(), null,
@@ -172,17 +175,37 @@ public final class ImportService {
             // A row with no symbol is still worth keeping: it holds the value
             // the broker reported, which is exactly how funds are carried.
             boolean priceable = symbol != null && !symbol.isBlank();
+            // Confirmed automatically, or chosen by hand: both count as
+            // verified, and verification is never revoked later.
+            boolean overridden = overrides != null && overrides.containsKey(row.index());
+            boolean verified = "CONFIRMED".equals(row.status()) || overridden;
+
+            // On an override, resolvedName belongs to the match that was
+            // rejected, so it must not be carried over onto the corrected
+            // symbol. Ask what the chosen symbol actually is instead.
+            String name = row.resolvedName() != null ? row.resolvedName() : row.name();
+            if (overridden) {
+                name = resolver.describe(symbol)
+                        .map(quote -> quote.name())
+                        .filter(found -> found != null && !found.isBlank())
+                        .orElse(row.name());
+            }
+
             InstrumentRepo.Instrument instrument = instruments.upsert(
                     priceable ? symbol : null,
-                    row.resolvedName() != null ? row.resolvedName() : row.name(),
+                    name,
                     row.currency(),
                     guessKind(row),
                     priceable ? "YAHOO" : "NONE",
-                    // Confirmed automatically, or overridden by hand: both count
-                    // as verified, and verification is never revoked later.
-                    "CONFIRMED".equals(row.status()) || (overrides != null && overrides.containsKey(row.index())));
+                    verified);
 
-            instruments.linkAlias(preview.broker(), aliasFor(row), instrument.id());
+            // Only remember the mapping if it was actually settled. Caching an
+            // unverified guess would silently skip the price check on every
+            // future import of the same holding - which is exactly how a wrong
+            // match becomes permanent.
+            if (verified) {
+                instruments.linkAlias(preview.broker(), aliasFor(row), instrument.id());
+            }
             stored.add(new AccountRepo.StoredHolding(
                     instrument.id(), instrument.symbol(), instrument.name(), row.currency(),
                     instrument.kind(), instrument.priceSource(), instrument.verified(),

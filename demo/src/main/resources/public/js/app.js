@@ -10,7 +10,7 @@ import { api, ApiError } from './api.js';
 import { Chart } from './chart.js';
 import { drawSparkline } from './sparkline.js';
 import { SearchPalette } from './palette.js';
-import { renderHoldingsView } from './holdings.js';
+import { renderHoldingsView, teardownHoldingsChart } from './holdings.js';
 import { toast } from './toast.js';
 import { escapeHtml, qs, qsa, setDirectionClass, setHtml, setText } from './dom.js';
 import * as fmt from './format.js';
@@ -137,6 +137,9 @@ function initRouting() {
 function teardownChart() {
     state.chart?.destroy();
     state.chart = null;
+    // The holdings view owns its own chart instance, so it has to be told too -
+    // otherwise its canvas listeners and observers outlive the page.
+    teardownHoldingsChart();
     state.candleRequest?.abort();
     state.candleRequest = null;
 }

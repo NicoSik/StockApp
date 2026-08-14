@@ -5,6 +5,16 @@ complete as it stands.
 
 ## Next
 
+**Manual holdings, for funds.** The one deliberate gap in the aggregator.
+Neither DNB nor Nordnet exports Norwegian mutual funds, and no free NAV source
+exists that can be trusted to return the right share class — searching by name
+returns hedged variants, foreign domiciles and the wrong currency. So funds need
+entering by hand: name, units, value, updated when you feel like it. For a
+portfolio around a third in funds this is the largest remaining piece.
+
+**A second DNB export for funds**, if one turns out to exist. Worth checking
+before building manual entry, since it would make it unnecessary.
+
 **Live streaming instead of polling.** Alpaca has a WebSocket feed for trades
 and quotes. Replacing the 15-second poll would make prices tick in real time
 and cut request volume to near zero. Javalin has first-class WebSocket support,
@@ -19,6 +29,12 @@ series today; it would need a series list and a per-series colour.
 **Drag to reorder the watchlist.** `PUT /api/watchlists/{id}/order` is already
 implemented and tested by hand; nothing in the UI calls it yet. Pointer-based
 reordering plus a keyboard alternative (`Alt+↑/↓`) would finish it.
+
+**More brokers.** The importer is a `BrokerParser` interface plus a per-broker
+adapter; adding one is a parser and a format-detection check. Saxo is the
+obvious candidate, since unlike the Norwegian retail brokers it has a real
+OpenAPI and could skip file import entirely. Crypto exchanges (Firi, Coinbase,
+Kraken) likewise.
 
 **More than one watchlist.** The schema, repository and API all support many
 lists. The rail only ever shows the first. A selector in the rail header and a

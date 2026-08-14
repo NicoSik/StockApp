@@ -43,6 +43,35 @@ with no build step.
 
 Everything is local. No order ever reaches a broker.
 
+## Holdings — your real brokers, in one NOK total
+
+Separate from the paper portfolio, and deliberately so: mixing simulated money
+into a real net-worth figure is not something to do by accident.
+
+Drop in an export and it becomes one combined total:
+
+| Broker | Export | Identified by |
+|---|---|---|
+| **Nordnet** | *Aksjelister* (`.csv`) | name — no ISIN, no ticker |
+| **DNB** | *Beholdning* (`.xlsx`) | ticker |
+
+- **Live pricing where it exists.** Oslo Børs and Stockholm listings come from
+  Yahoo in their own currency; US equities from Alpaca. Norges Bank supplies the
+  NOK rates.
+- **Honest where it doesn't.** Norwegian mutual funds have no free price feed,
+  so they carry the value your broker last reported, stamped with its date. The
+  total says so: *"616 578 kr — 99.9% priced live, 577 kr as of 14 Aug"*.
+- **Matches are verified, not guessed.** Neither export carries an ISIN, so an
+  instrument is resolved from a name or ticker and then checked against the
+  price in your own file. A mismatch is refused and handed to you to fix rather
+  than quietly believed — which is what caught a Nordnet line called "AEye A"
+  resolving to AudioEye (`AEYE`) when the holding was AEye Inc (`LIDR`).
+- **Imports are reversible.** Each one writes a dated snapshot rather than
+  editing holdings, so re-importing is safe and a value history builds up for
+  free.
+
+Broker exports live in `imports/`, which is gitignored.
+
 ## Requirements
 
 | | |

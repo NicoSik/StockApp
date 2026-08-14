@@ -11,6 +11,7 @@
  */
 
 import { api } from './api.js';
+import { Chart } from './chart.js';
 import { escapeHtml, qs, qsa, setHtml } from './dom.js';
 import { toast } from './toast.js';
 import * as fmt from './format.js';
@@ -30,24 +31,47 @@ const kr = (value, precise = false) => {
 
 /** State for an in-progress import, held only while the dialog is open. */
 let preview = null;
+/** Row index to the symbol the user picked by hand. */
+let overrides = {};
+/** Row indices the user chose to leave out. */
+let skipped = new Set();
+/** Which row currently has its search panel open, if any. */
+let fixingRow = null;
+let searchTimer = null;
+
+let chart = null;
+
+/** Called by the router before leaving, so the canvas listeners do not leak. */
+export function teardownHoldingsChart() {
+    chart?.destroy();
+    chart = null;
+}
 
 export async function renderHoldingsView(main) {
+    teardownHoldingsChart();
     setHtml(main, '<div class="empty"><p class="empty__title">Loading holdings</p></div>');
 
     let data;
+    let history = { points: [] };
     try {
-        data = await api.holdings();
+        [data, history] = await Promise.all([
+            api.holdings(),
+            api.holdingsHistory().catch(() => ({ points: [] })),
+        ]);
     } catch (error) {
         setHtml(main, `<div class="empty"><p class="empty__title">Could not load holdings</p>
             <p class="note">${escapeHtml(error.message)}</p></div>`);
         return;
     }
 
-    setHtml(main, markup(data));
+    setHtml(main, markup(data, history));
+    mountChart(data, history);
     bind(main);
 }
 
-function markup(data) {
+// ==================================================================== markup
+
+function markup(data, history) {
     const empty = !data.holdings || data.holdings.length === 0;
     const gainDir = fmt.direction(data.gainNok);
 
@@ -55,12 +79,12 @@ function markup(data) {
     <section aria-labelledby="holdings-heading">
         <p class="hero__eyebrow">Across your brokers</p>
         <h1 class="hero__symbol" id="holdings-heading">Holdings</h1>
-        <p class="hero__price">${kr(data.totalNok)}</p>
+        <p class="hero__price" id="h-total">${kr(data.totalNok)}</p>
         <p class="hero__change">
             ${data.gainNok !== null && data.gainNok !== undefined
                 ? `<span class="${gainDir}">${fmt.arrow(data.gainNok)} ${kr(data.gainNok)}</span>
-                   <span class="hero__change-label">where cost basis is known</span>`
-                : '<span class="hero__change-label">Combined value in NOK</span>'}
+                   <span class="hero__change-label" id="h-total-label">where cost basis is known</span>`
+                : '<span class="hero__change-label" id="h-total-label">Combined value in NOK</span>'}
         </p>
 
         ${empty ? '' : freshnessBanner(data)}
@@ -71,6 +95,16 @@ function markup(data) {
         </div>
 
         ${empty ? emptyState() : `
+            <div class="chart" style="height:220px">
+                <canvas class="chart__canvas" id="h-canvas" tabindex="0" role="img"
+                        aria-label="Combined portfolio value over time. Use arrow keys to read values."></canvas>
+                <div class="chart__tooltip" id="h-tooltip" aria-hidden="true"></div>
+                <div class="chart__price-tag" id="h-price-tag" aria-hidden="true"></div>
+                <div class="chart__empty" id="h-chart-empty"${history.points?.length > 1 ? ' hidden' : ''}>
+                    ${history.points?.length > 1 ? '' : 'Your value chart builds up as you import over time — one point per import.'}
+                </div>
+            </div>
+
             <div class="summary">
                 ${data.accounts.filter(a => a.holdingCount > 0).map(accountCard).join('')}
             </div>
@@ -90,7 +124,7 @@ function markup(data) {
 
         <div class="palette-backdrop" id="h-import-backdrop" hidden>
             <div class="palette" role="dialog" aria-modal="true" aria-label="Import a broker export"
-                 style="width:min(880px, calc(100vw - var(--space-6)))">
+                 style="width:min(920px, calc(100vw - var(--space-6)))">
                 <div id="h-import-body"></div>
             </div>
         </div>
@@ -103,14 +137,13 @@ function markup(data) {
  */
 function freshnessBanner(data) {
     const live = Number(data.livePercent) || 0;
-    if (live >= 99.5) {
-        return `<p class="note" style="margin-top:var(--space-3)">
-            Everything priced live.</p>`;
+    if (live >= 99.95) {
+        return '<p class="note" style="margin-top:var(--space-3)">Everything priced live.</p>';
     }
     return `<p class="banner" style="margin-top:var(--space-4)">
         <span>${live.toFixed(0)}% priced live · ${kr(data.asOfNok)} carried from your last import${
             data.oldestAsOf ? ` (${escapeHtml(data.oldestAsOf)})` : ''
-        }. Norwegian funds have no free price feed, so they hold their imported value.</span>
+        }. Anything without a verified match keeps the value your broker reported.</span>
     </p>`;
 }
 
@@ -155,7 +188,49 @@ function emptyState() {
     </div>`;
 }
 
-// ================================================================ interaction
+// ===================================================================== chart
+
+/**
+ * Plots combined value per snapshot date.
+ *
+ * <p>Two points are enough for a line, and two points is what you have after a
+ * second import - so the chart earns its place immediately rather than after
+ * weeks of history.
+ */
+function mountChart(data, history) {
+    const canvas = qs('#h-canvas');
+    const points = (history.points ?? [])
+        // Anchored to midday UTC, not midnight. A snapshot carries a calendar
+        // date, but the chart's labels are formatted in market time - and
+        // "2026-08-11" parsed as UTC midnight is the evening of the 10th in New
+        // York, so every point would display a day early. Midday leaves no
+        // timezone able to shift the date either way.
+        .map((p) => ({ time: Date.parse(`${p.date}T12:00:00Z`), close: Number(p.value) }))
+        .filter((p) => Number.isFinite(p.time) && Number.isFinite(p.close));
+
+    if (!canvas || points.length < 2) return;
+
+    chart = new Chart(canvas, {
+        tooltip: qs('#h-tooltip'),
+        priceTag: qs('#h-price-tag'),
+        formatValue: (value) => kr(value),
+        onScrub: (info) => {
+            const total = qs('#h-total');
+            const label = qs('#h-total-label');
+            if (info) {
+                if (total) total.textContent = kr(info.price);
+                if (label) label.textContent = 'on this date';
+            } else {
+                if (total) total.textContent = kr(data.totalNok);
+                if (label) label.textContent = data.gainNok !== null && data.gainNok !== undefined
+                    ? 'where cost basis is known' : 'Combined value in NOK';
+            }
+        },
+    });
+    chart.setData({ points, baseline: points[0].close, range: '1Y' });
+}
+
+// =============================================================== interaction
 
 function bind(main) {
     qs('#h-import', main)?.addEventListener('click', openImport);
@@ -172,13 +247,25 @@ function bind(main) {
 }
 
 function escapeToClose(event) {
-    if (event.key === 'Escape') closeImport();
+    if (event.key !== 'Escape') return;
+    // Close the row search first, so Escape does not discard the whole import
+    // just because a search box happened to be open.
+    if (fixingRow !== null) {
+        fixingRow = null;
+        renderPreviewTable();
+        return;
+    }
+    closeImport();
 }
 
 function openImport() {
     const backdrop = qs('#h-import-backdrop');
     if (!backdrop) return;
     backdrop.hidden = false;
+    preview = null;
+    overrides = {};
+    skipped = new Set();
+    fixingRow = null;
     setHtml(qs('#h-import-body'), uploadMarkup());
 
     const input = qs('#h-file');
@@ -201,6 +288,10 @@ function closeImport() {
     const backdrop = qs('#h-import-backdrop');
     if (backdrop) backdrop.hidden = true;
     preview = null;
+    overrides = {};
+    skipped = new Set();
+    fixingRow = null;
+    clearTimeout(searchTimer);
     document.removeEventListener('keydown', escapeToClose);
 }
 
@@ -229,8 +320,11 @@ async function uploadFile(file) {
         '<div class="empty"><p class="empty__title">Reading…</p><p class="note">Matching holdings against live prices.</p></div>');
     try {
         preview = await api.previewImport(file);
-        setHtml(qs('#h-import-body'), previewMarkup(preview));
-        bindPreview();
+        overrides = {};
+        skipped = new Set();
+        fixingRow = null;
+        setHtml(qs('#h-import-body'), previewShell());
+        renderPreviewTable();
     } catch (error) {
         setHtml(qs('#h-import-body'), `
             <div style="padding:var(--space-5)">
@@ -242,71 +336,217 @@ async function uploadFile(file) {
     }
 }
 
-function previewMarkup(p) {
-    const problems = p.needsReview + p.unresolved;
+/** The parts of the preview dialog that do not change as rows are edited. */
+function previewShell() {
     return `
-    <div style="padding:var(--space-5); max-height:78vh; overflow:auto">
+    <div style="padding:var(--space-5); max-height:80vh; overflow:auto">
         <h2 class="card__title">
-            <span>${escapeHtml(p.accountName)} · ${p.rows.length} holdings · ${kr(p.totalNok)}</span>
+            <span>${escapeHtml(preview.accountName)} · ${preview.rows.length} holdings · ${kr(preview.totalNok)}</span>
         </h2>
-
-        ${problems === 0
-            ? `<p class="note">All ${p.confirmed} holdings matched and were verified against the
-               price in your file. Nothing needs your attention.</p>`
-            : `<p class="banner">${p.confirmed} matched automatically. ${problems} need a look —
-               either the price disagreed with your file, or nothing was found. Anything left
-               unmatched is still imported, just carried at the value your broker reported.</p>`}
-
+        <div id="h-preview-status"></div>
         <div class="table__wrap" style="margin-top:var(--space-4)">
             <table class="table">
                 <thead><tr>
                     <th>From your file</th><th class="num">Qty</th><th class="num">Your price</th>
-                    <th>Matched to</th><th class="num">Live price</th><th>Status</th>
+                    <th>Matched to</th><th class="num">Live price</th><th>Status</th><th></th>
                 </tr></thead>
-                <tbody>${p.rows.map(previewRow).join('')}</tbody>
+                <tbody id="h-preview-rows"></tbody>
             </table>
         </div>
-
         <div class="button-row" style="margin-top:var(--space-5)">
             <button type="button" class="button button--ghost" id="h-cancel">Cancel</button>
-            <button type="button" class="button button--buy" id="h-commit">
-                Import ${p.rows.length} holdings
-            </button>
+            <button type="button" class="button button--buy" id="h-commit"></button>
         </div>
     </div>`;
 }
 
+/**
+ * Redraws the row table and the summary line.
+ *
+ * <p>Rebuilt wholesale on every change rather than patched in place: a preview
+ * is at most a few dozen rows, and a single render path cannot drift out of
+ * sync with the overrides it is displaying.
+ */
+function renderPreviewTable() {
+    const rows = qs('#h-preview-rows');
+    if (!rows || !preview) return;
+
+    rows.innerHTML = preview.rows.map(previewRow).join('');
+
+    const importing = preview.rows.length - skipped.size;
+    const outstanding = preview.rows.filter(needsAttention).length;
+    const fixed = Object.keys(overrides).length;
+
+    setHtml(qs('#h-preview-status'), outstanding === 0
+        ? `<p class="note">Everything matched${fixed ? ` (${fixed} fixed by you)` : ''} and was verified
+           against the price in your file. Nothing needs your attention.</p>`
+        : `<p class="banner">${outstanding} ${outstanding === 1 ? 'row needs' : 'rows need'} a look — the price
+           disagreed with your file, or nothing was found. Fix them, skip them, or import anyway: anything
+           unmatched is still imported, just carried at the value your broker reported rather than priced live.</p>`);
+
+    const commit = qs('#h-commit');
+    if (commit) {
+        commit.textContent = skipped.size
+            ? `Import ${importing} holdings (${skipped.size} skipped)`
+            : `Import ${importing} holdings`;
+        commit.disabled = importing === 0;
+    }
+
+    bindPreviewRows();
+}
+
+/** A row still wanting attention: flagged, not overridden, not skipped. */
+function needsAttention(row) {
+    return row.status !== 'CONFIRMED'
+        && !(row.index in overrides)
+        && !skipped.has(row.index);
+}
+
 function previewRow(row) {
-    const tone = { CONFIRMED: 'BUY', NEEDS_REVIEW: 'SELL', UNRESOLVED: 'SELL' }[row.status] ?? 'SELL';
-    const label = { CONFIRMED: 'matched', NEEDS_REVIEW: 'check', UNRESOLVED: 'no match' }[row.status] ?? row.status;
+    const chosen = overrides[row.index];
+    const isSkipped = skipped.has(row.index);
+    const resolvedSymbol = chosen ?? row.symbol;
+
+    let tone = 'BUY';
+    let label = 'matched';
+    if (isSkipped) {
+        tone = 'SELL';
+        label = 'skipped';
+    } else if (chosen) {
+        tone = 'BUY';
+        label = 'you chose';
+    } else if (row.status === 'NEEDS_REVIEW') {
+        tone = 'SELL';
+        label = 'check';
+    } else if (row.status === 'UNRESOLVED') {
+        tone = 'SELL';
+        label = 'no match';
+    }
+
+    const actions = row.status === 'CONFIRMED' && !chosen
+        ? ''
+        : `<button type="button" class="button button--small button--ghost" data-fix="${row.index}">
+               ${fixingRow === row.index ? 'Close' : 'Fix'}</button>
+           <button type="button" class="button button--small button--ghost" data-skip="${row.index}">
+               ${isSkipped ? 'Include' : 'Skip'}</button>`;
+
+    const searchPanel = fixingRow === row.index ? `
+        <tr data-search-for="${row.index}">
+            <td colspan="7" style="background:var(--surface)">
+                <label class="field" style="margin:0">
+                    <span class="field__label">Search for the right instrument
+                        ${row.currency ? `(${escapeHtml(row.currency)} listings)` : ''}</span>
+                    <input class="input" id="h-search-input" type="text" autocomplete="off"
+                           placeholder="Ticker or company name, e.g. LIDR"
+                           value="${escapeHtml(row.name || '')}">
+                </label>
+                <div id="h-search-results" class="note">Type to search.</div>
+            </td>
+        </tr>` : '';
+
     return `
-    <tr>
+    <tr style="${isSkipped ? 'opacity:.45' : ''}">
         <td><strong>${escapeHtml(row.name)}</strong>
             ${row.knownAlias ? '<br><span class="note">already mapped</span>' : ''}</td>
         <td class="num">${fmt.shares(row.quantity)}</td>
         <td class="num">${row.lastPrice !== null && row.lastPrice !== undefined
             ? Number(row.lastPrice).toFixed(2) : fmt.EMPTY} ${escapeHtml(row.currency || '')}</td>
-        <td>${row.symbol ? `<strong>${escapeHtml(row.symbol)}</strong>` : fmt.EMPTY}
-            ${row.note ? `<br><span class="note">${escapeHtml(row.note)}</span>` : ''}</td>
+        <td>${resolvedSymbol ? `<strong>${escapeHtml(resolvedSymbol)}</strong>` : fmt.EMPTY}
+            ${!chosen && row.note ? `<br><span class="note">${escapeHtml(row.note)}</span>` : ''}</td>
         <td class="num">${row.livePrice !== null && row.livePrice !== undefined
             ? Number(row.livePrice).toFixed(2) : fmt.EMPTY}</td>
         <td><span class="side-chip" data-side="${tone}">${label}</span></td>
-    </tr>`;
+        <td style="white-space:nowrap">${actions}</td>
+    </tr>${searchPanel}`;
 }
 
-function bindPreview() {
-    qs('#h-cancel')?.addEventListener('click', closeImport);
-    qs('#h-commit')?.addEventListener('click', async () => {
-        const button = qs('#h-commit');
-        if (button) button.disabled = true;
-        try {
-            const result = await api.commitImport(preview.id, {}, []);
-            toast(`Imported ${result.result.imported} holdings from ${result.result.accountName}.`, 'success');
-            closeImport();
-            await renderHoldingsView(qs('#main'));
-        } catch (error) {
-            toast(error.message, 'error');
-            if (button) button.disabled = false;
+function bindPreviewRows() {
+    qsa('[data-fix]').forEach((button) => button.addEventListener('click', () => {
+        const index = Number(button.dataset.fix);
+        fixingRow = fixingRow === index ? null : index;
+        renderPreviewTable();
+        if (fixingRow !== null) {
+            const input = qs('#h-search-input');
+            input?.focus();
+            input?.select();
+            runSearch();
         }
+    }));
+
+    qsa('[data-skip]').forEach((button) => button.addEventListener('click', () => {
+        const index = Number(button.dataset.skip);
+        if (skipped.has(index)) {
+            skipped.delete(index);
+        } else {
+            skipped.add(index);
+            delete overrides[index];
+            if (fixingRow === index) fixingRow = null;
+        }
+        renderPreviewTable();
+    }));
+
+    qs('#h-search-input')?.addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(runSearch, 250);
     });
+
+    qs('#h-cancel')?.addEventListener('click', closeImport);
+    qs('#h-commit')?.addEventListener('click', commit);
+}
+
+async function runSearch() {
+    const input = qs('#h-search-input');
+    const results = qs('#h-search-results');
+    if (!input || !results || fixingRow === null) return;
+
+    const row = preview.rows.find((r) => r.index === fixingRow);
+    const query = input.value.trim();
+    if (!query) {
+        results.textContent = 'Type to search.';
+        return;
+    }
+    results.textContent = 'Searching…';
+
+    try {
+        const matches = await api.lookupInstrument(query, row?.currency);
+        if (fixingRow === null) return;
+        if (!matches.length) {
+            results.innerHTML = `<span class="note">Nothing found${
+                row?.currency ? ` on a ${escapeHtml(row.currency)} market` : ''}.</span>`;
+            return;
+        }
+        results.innerHTML = matches.map((match) => `
+            <button type="button" class="palette__item" data-pick="${escapeHtml(match.symbol)}"
+                    style="border-radius:var(--radius-sm)">
+                <span class="palette__symbol">${escapeHtml(match.symbol)}</span>
+                <span class="palette__company">${escapeHtml(match.name || '')}</span>
+                <span class="palette__market">${match.price !== undefined
+                    ? `${Number(match.price).toFixed(2)} ${escapeHtml(match.currency || '')}` : ''}</span>
+            </button>`).join('');
+
+        qsa('[data-pick]', results).forEach((button) => button.addEventListener('click', () => {
+            overrides[fixingRow] = button.dataset.pick;
+            skipped.delete(fixingRow);
+            fixingRow = null;
+            renderPreviewTable();
+        }));
+    } catch (error) {
+        results.innerHTML = `<span class="note">${escapeHtml(error.message)}</span>`;
+    }
+}
+
+async function commit() {
+    const button = qs('#h-commit');
+    if (button) button.disabled = true;
+    try {
+        const result = await api.commitImport(preview.id, overrides, [...skipped]);
+        const { imported, skipped: skippedCount, accountName } = result.result;
+        toast(`Imported ${imported} holdings from ${accountName}${
+            skippedCount ? `, ${skippedCount} skipped` : ''}.`, 'success');
+        closeImport();
+        await renderHoldingsView(qs('#main'));
+    } catch (error) {
+        toast(error.message, 'error');
+        if (button) button.disabled = false;
+    }
 }

@@ -112,6 +112,18 @@ public final class InstrumentResolver {
                 "No matching instrument found");
     }
 
+    /**
+     * Looks up a symbol the user chose by hand.
+     *
+     * <p>An overridden row still carries the name of the match that was
+     * <em>rejected</em>, so storing that alongside the corrected symbol would
+     * label the right instrument with the wrong company - LIDR appearing as
+     * "AudioEye, Inc." because AudioEye is what the failed lookup returned.
+     */
+    public Optional<YahooClient.Quote> describe(String symbol) {
+        return symbol == null || symbol.isBlank() ? Optional.empty() : yahoo.quote(symbol.trim());
+    }
+
     /** The name as given, then without a trailing share-class letter. */
     static List<String> queriesFor(String name) {
         if (name == null || name.isBlank()) {

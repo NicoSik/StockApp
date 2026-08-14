@@ -182,6 +182,84 @@ Returns the reset summary.
 
 ---
 
+## Holdings (multi-broker aggregator)
+
+Separate from `/api/portfolio`, which is the simulated one. These are real
+imported holdings, valued in NOK.
+
+### `GET /api/holdings`
+```json
+{ "totalNok": 616577.95,
+  "liveNok": 616000.94, "asOfNok": 577.01, "livePercent": 99.91,
+  "gainNok": 338133.00, "costBasisNok": 278444.95,
+  "oldestAsOf": "2026-08-14", "accountCount": 2, "holdingCount": 37,
+  "accounts": [{ "id": 1, "name": "Nordnet", "broker": "NORDNET",
+                 "asOf": "2026-08-14", "valueNok": 344745.55, "holdingCount": 27 }],
+  "holdings": [{ "symbol": "HAUTO.OL", "name": "Höegh Autoliners ASA",
+                 "kind": "STOCK", "currency": "NOK", "quantity": 469,
+                 "avgCost": null, "price": 189.20, "valueNok": 88734.80,
+                 "costBasisNok": null, "gainNok": null, "gainPercent": null,
+                 "weight": 14.38, "live": true, "accountName": "DNB" }],
+  "fxRates": { "USD": 9.4515, "SEK": 0.994 } }
+```
+
+`live` is the field that matters: true means the value was computed from a
+current price, false means it is the value the broker reported at import.
+`avgCost` and everything derived from it are null for DNB holdings, which
+report cost basis only at portfolio level.
+
+### `GET /api/holdings/history`
+```json
+{ "points": [{ "date": "2026-08-14", "value": 614696.54 }] }
+```
+One point per snapshot date, summed across accounts.
+
+### `POST /api/holdings/import/preview`
+`multipart/form-data` with a `file` part. Max 8 MB. Parses and resolves without
+writing anything.
+
+```json
+{ "id": "98cf1e9d-…", "broker": "NORDNET", "accountName": "Nordnet",
+  "asOf": "2026-08-14", "totalNok": 342864.13,
+  "confirmed": 25, "needsReview": 2, "unresolved": 0,
+  "rows": [{ "index": 20, "name": "AEye A", "ticker": null, "currency": "USD",
+             "quantity": 378, "avgCost": 4.2303, "lastPrice": 1.29,
+             "valueNok": 4604.97, "status": "NEEDS_REVIEW", "symbol": "AEYE",
+             "resolvedName": "AudioEye, Inc.", "livePrice": 7.99,
+             "note": "Price differs by 519% — possible split, stale export, or wrong instrument",
+             "knownAlias": false }] }
+```
+
+`status` is `CONFIRMED`, `NEEDS_REVIEW` or `UNRESOLVED`. A preview expires after
+30 minutes. 422 with an explanation for an unrecognised or unreconcilable file.
+
+### `POST /api/holdings/import/commit`
+```json
+{ "previewId": "98cf1e9d-…", "overrides": { "20": "LIDR" }, "skip": [26] }
+```
+`overrides` maps a row index to a symbol the user chose by hand; `skip` leaves
+rows out entirely. Both may be empty. Returns the result plus a fresh valuation.
+
+An overridden or auto-confirmed row is remembered as an alias, so it never needs
+reviewing again. A row left unresolved is still imported — carried at its
+broker-reported value — but deliberately *not* remembered, so the price check
+runs again next time.
+
+### `GET /api/holdings/lookup?q=&currency=`
+Symbol search for the reconcile screen, filtered to the market the currency
+implies, with a live price for each candidate so the right one is obvious.
+
+```json
+[{ "symbol": "LIDR", "name": "AEye, Inc.", "exchange": "NMS",
+   "type": "EQUITY", "price": 1.31, "currency": "USD" }]
+```
+
+### Also available
+`GET /api/holdings/accounts`, `GET /api/holdings/instruments` — the raw rows,
+useful for debugging. Nothing in the UI calls them.
+
+---
+
 ## Alerts
 
 | | |
