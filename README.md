@@ -173,13 +173,11 @@ that process.
 
 ## Security
 
-`.env` is gitignored and is the only place credentials belong. Build output is
-no longer tracked.
+`.env` is gitignored and is the only place credentials belong. Build output and
+broker exports are not tracked. The app binds to localhost and has no
+authentication, which suits a single-user tool and rules out hosting it as-is.
 
-> **Rotate your credentials.** Earlier commits in this repository's history
-> contain a real PostgreSQL password and real Alpaca API keys, and the
-> repository is public. Removing them from the working tree does not remove
-> them from history. See [docs/SECURITY.md](docs/SECURITY.md).
+See [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Licence
 

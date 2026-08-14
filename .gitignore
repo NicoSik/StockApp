@@ -6,6 +6,12 @@
 config.properties
 application-local.properties
 
+# --- Private notes ---------------------------------------------------------
+# Anything named *.local.md stays on this machine. Use it for notes that are
+# useful to keep next to the code but should not be published - remediation
+# steps, account specifics, anything that describes a weakness in this setup.
+*.local.md
+
 # --- Broker exports --------------------------------------------------------
 # Real holdings, account numbers and position sizes. This repository is public.
 # Broker exports are dropped here to be imported and must never be committed;
