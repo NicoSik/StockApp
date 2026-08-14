@@ -1,2 +1,17 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# The POSIX Maven wrapper must keep LF endings. With CRLF the shebang becomes
+# "#!/bin/sh\r" and every non-Windows shell reports "bad interpreter", which is
+# a confusing way to discover a line-ending problem.
+mvnw text eol=lf
+*.sh text eol=lf
+
+# Batch and PowerShell files are only ever run by Windows; CRLF is correct and
+# cmd.exe in particular mis-parses multi-line constructs with bare LF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# SQL migrations are read by the JVM, not a shell; normalise for clean diffs.
+*.sql text eol=lf

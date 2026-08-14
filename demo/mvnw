@@ -1,0 +1,93 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# Apache Maven Wrapper (POSIX: Git Bash, WSL, macOS, Linux)
+#
+# Runs Maven without requiring Maven to be installed. The first invocation
+# downloads the distribution pinned in .mvn/wrapper/maven-wrapper.properties
+# into ~/.m2/wrapper/dists and verifies its SHA-512; later runs reuse it and
+# never touch the network.
+#
+# Usage:  ./mvnw clean compile
+#         ./mvnw exec:java
+# ---------------------------------------------------------------------------
+set -e
+
+script_dir=$(cd "$(dirname "$0")" && pwd)
+props="$script_dir/.mvn/wrapper/maven-wrapper.properties"
+
+log() { echo "[mvnw] $*" >&2; }
+die() { log "ERROR: $*"; exit 1; }
+
+[ -f "$props" ] || die "missing $props"
+
+read_prop() {
+  # Strips comments/blank lines, matches "key=value", trims surrounding space.
+  sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\(.*\)[[:space:]]*$/\1/p" "$props" | head -n 1
+}
+
+distribution_url=$(read_prop distributionUrl)
+expected_sha512=$(read_prop distributionSha512Sum)
+
+[ -n "$distribution_url" ] || die "distributionUrl is not set in maven-wrapper.properties"
+
+zip_name=${distribution_url##*/}                 # apache-maven-3.9.16-bin.zip
+dist_name=${zip_name%-bin.zip}                   # apache-maven-3.9.16
+
+dists_root="${HOME}/.m2/wrapper/dists"
+maven_home="$dists_root/$dist_name"
+
+if [ ! -x "$maven_home/bin/mvn" ] && [ ! -f "$maven_home/bin/mvn" ]; then
+  log "Apache Maven is not installed yet."
+  log "Downloading $distribution_url"
+  log "Destination: $maven_home"
+
+  staging=$(mktemp -d 2>/dev/null || mktemp -d -t mvnw)
+  trap 'rm -rf "$staging"' EXIT
+
+  zip_path="$staging/$zip_name"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$zip_path" "$distribution_url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$zip_path" "$distribution_url"
+  else
+    die "neither curl nor wget is available to download Maven"
+  fi
+
+  if [ -n "$expected_sha512" ]; then
+    log "Verifying SHA-512 checksum..."
+    if command -v sha512sum >/dev/null 2>&1; then
+      actual=$(sha512sum "$zip_path" | cut -d' ' -f1)
+    elif command -v shasum >/dev/null 2>&1; then
+      actual=$(shasum -a 512 "$zip_path" | cut -d' ' -f1)
+    else
+      actual=""
+      log "WARNING: no sha512sum/shasum available; skipping verification."
+    fi
+    if [ -n "$actual" ] && [ "$actual" != "$expected_sha512" ]; then
+      log "  expected: $expected_sha512"
+      log "  actual:   $actual"
+      die "checksum mismatch - refusing to install."
+    fi
+    [ -n "$actual" ] && log "Checksum OK."
+  else
+    log "WARNING: no distributionSha512Sum pinned; skipping verification."
+  fi
+
+  log "Extracting..."
+  command -v unzip >/dev/null 2>&1 || die "unzip is required to extract the Maven distribution"
+  unzip -q "$zip_path" -d "$staging/unzipped"
+
+  extracted="$staging/unzipped/$dist_name"
+  [ -d "$extracted" ] || extracted=$(find "$staging/unzipped" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+
+  mkdir -p "$dists_root"
+  rm -rf "$maven_home"
+  mv "$extracted" "$maven_home"
+  chmod +x "$maven_home/bin/mvn" 2>/dev/null || true
+
+  log "Installed Apache Maven at $maven_home"
+fi
+
+[ -f "$maven_home/bin/mvn" ] || die "installation finished but $maven_home/bin/mvn is missing."
+
+exec "$maven_home/bin/mvn" "$@"
