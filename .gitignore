@@ -6,6 +6,17 @@
 config.properties
 application-local.properties
 
+# --- Broker exports --------------------------------------------------------
+# Real holdings, account numbers and position sizes. This repository is public.
+# Broker exports are dropped here to be imported and must never be committed;
+# the rule exists before the folder does, deliberately.
+imports/
+*.xlsx
+*.xls
+aksjelister*.csv
+transaksjoner*.csv
+beholdning*.csv
+
 # --- Build output ----------------------------------------------------------
 target/
 *.class
