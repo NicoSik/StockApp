@@ -36,7 +36,12 @@ public final class AccountRepo {
                            BigDecimal reportedTotalNok) {
     }
 
-    /** A stored holding joined to the instrument it refers to. */
+    /**
+     * A stored holding joined to the instrument it refers to.
+     *
+     * @param leverage  null for an ordinary holding, above 1 for a CFD
+     * @param direction LONG or SHORT, null when the concept does not apply
+     */
     public record StoredHolding(int instrumentId,
                                 String symbol,
                                 String name,
@@ -46,7 +51,17 @@ public final class AccountRepo {
                                 boolean verified,
                                 BigDecimal quantity,
                                 BigDecimal avgCost,
-                                BigDecimal valueNok) {
+                                BigDecimal valueNok,
+                                BigDecimal leverage,
+                                String direction) {
+
+        /** Convenience for the file importers, which have neither concept. */
+        public StoredHolding(int instrumentId, String symbol, String name, String currency,
+                             String kind, String priceSource, boolean verified,
+                             BigDecimal quantity, BigDecimal avgCost, BigDecimal valueNok) {
+            this(instrumentId, symbol, name, currency, kind, priceSource, verified,
+                    quantity, avgCost, valueNok, null, null);
+        }
     }
 
     // --------------------------------------------------------------- accounts
@@ -129,8 +144,8 @@ public final class AccountRepo {
 
                 try (PreparedStatement ps = conn.prepareStatement("""
                         INSERT INTO holding (snapshot_id, instrument_id, quantity, avg_cost, currency,
-                                             value_native, value_nok)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                                             value_native, value_nok, leverage, direction)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT (snapshot_id, instrument_id) DO UPDATE
                             SET quantity = holding.quantity + EXCLUDED.quantity,
                                 value_nok = holding.value_nok + EXCLUDED.value_nok
@@ -143,6 +158,8 @@ public final class AccountRepo {
                         ps.setString(5, holding.currency());
                         ps.setBigDecimal(6, null);
                         ps.setBigDecimal(7, holding.valueNok());
+                        ps.setBigDecimal(8, holding.leverage());
+                        ps.setString(9, holding.direction());
                         ps.addBatch();
                     }
                     ps.executeBatch();
@@ -186,7 +203,7 @@ public final class AccountRepo {
     public List<StoredHolding> holdings(int snapshotId) {
         String sql = """
                 SELECT h.instrument_id, i.symbol, i.name, i.kind, i.price_source, i.verified,
-                       h.quantity, h.avg_cost, h.currency, h.value_nok
+                       h.quantity, h.avg_cost, h.currency, h.value_nok, h.leverage, h.direction
                   FROM holding h
                   JOIN instrument i ON i.id = h.instrument_id
                  WHERE h.snapshot_id = ?
@@ -208,7 +225,9 @@ public final class AccountRepo {
                             rs.getBoolean("verified"),
                             rs.getBigDecimal("quantity"),
                             rs.getBigDecimal("avg_cost"),
-                            rs.getBigDecimal("value_nok")));
+                            rs.getBigDecimal("value_nok"),
+                            rs.getBigDecimal("leverage"),
+                            rs.getString("direction")));
                 }
             }
         } catch (SQLException e) {

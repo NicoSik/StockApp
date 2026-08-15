@@ -7,10 +7,13 @@ import io.javalin.config.RoutesConfig;
 import io.javalin.http.Context;
 import io.javalin.http.HttpStatus;
 import io.javalin.http.UploadedFile;
+import stockapp.etoro.EtoroClient;
+import stockapp.etoro.EtoroException;
 import stockapp.importer.ImportException;
 import stockapp.market.YahooClient;
 import stockapp.repo.AccountRepo;
 import stockapp.repo.InstrumentRepo;
+import stockapp.service.EtoroSyncService;
 import stockapp.service.ImportService;
 import stockapp.service.ValuationService;
 
@@ -40,17 +43,23 @@ public final class AggregatorApi {
     private final ImportService imports;
     private final ValuationService valuation;
     private final YahooClient yahoo;
+    private final EtoroSyncService etoro;
+    private final EtoroClient etoroClient;
 
     public AggregatorApi(AccountRepo accounts,
                          InstrumentRepo instruments,
                          ImportService imports,
                          ValuationService valuation,
-                         YahooClient yahoo) {
+                         YahooClient yahoo,
+                         EtoroSyncService etoro,
+                         EtoroClient etoroClient) {
         this.accounts = accounts;
         this.instruments = instruments;
         this.imports = imports;
         this.valuation = valuation;
         this.yahoo = yahoo;
+        this.etoro = etoro;
+        this.etoroClient = etoroClient;
     }
 
     public void register(RoutesConfig routes) {
@@ -64,6 +73,12 @@ public final class AggregatorApi {
 
         routes.post("/api/holdings/import/preview", this::previewImport);
         routes.post("/api/holdings/import/commit", this::commitImport);
+
+        routes.exception(EtoroException.class, (e, ctx) ->
+                ctx.status(HttpStatus.BAD_GATEWAY).json(Map.of("error", e.getMessage())));
+        routes.get("/api/holdings/etoro/status", this::etoroStatus);
+        routes.post("/api/holdings/etoro/sync", this::etoroSync);
+        routes.get("/api/holdings/etoro/raw", this::etoroRaw);
 
         // Backs the reconcile screen: lets the user search for the right symbol
         // when the automatic match was refused.
@@ -124,6 +139,47 @@ public final class AggregatorApi {
         response.put("result", result);
         response.put("holdings", valuation.valueEverything());
         ctx.status(HttpStatus.CREATED).json(response);
+    }
+
+    // ----------------------------------------------------------------- etoro
+
+    private void etoroStatus(Context ctx) {
+        Map<String, Object> status = new LinkedHashMap<>();
+        status.put("configured", etoro.configured());
+        status.put("demo", stockapp.Config.ETORO_DEMO);
+        ctx.json(status);
+    }
+
+    private void etoroSync(Context ctx) {
+        if (!etoro.configured()) {
+            throw new EtoroException(
+                    "eToro is not configured. Add ETORO_API_KEY and ETORO_USER_KEY to .env, then restart. "
+                            + "Generate them in eToro under Settings > Trading > API Key Management "
+                            + "with Read permission.");
+        }
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("result", etoro.sync());
+        response.put("holdings", valuation.valueEverything());
+        ctx.status(HttpStatus.CREATED).json(response);
+    }
+
+    /**
+     * Returns an eToro response untouched.
+     *
+     * <p>Everything here was written against documentation rather than against
+     * a live account, so when a field lands somewhere unexpected this is what
+     * shows the real shape without guessing. Read-only and limited to eToro's
+     * own host.
+     */
+    private void etoroRaw(Context ctx) {
+        String path = ctx.queryParam("path");
+        if (path == null || path.isBlank()) {
+            path = "/trading/info/" + (stockapp.Config.ETORO_DEMO ? "demo" : "real") + "/aggregate-portfolio";
+        }
+        if (path.contains("://") || path.contains("..")) {
+            throw new Json.BadRequest("\"path\" must be a path on the eToro API, not a URL.");
+        }
+        ctx.contentType("application/json").result(etoroClient.raw(path));
     }
 
     // ---------------------------------------------------------------- lookup

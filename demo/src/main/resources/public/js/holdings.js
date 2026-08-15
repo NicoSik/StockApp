@@ -53,10 +53,12 @@ export async function renderHoldingsView(main) {
 
     let data;
     let history = { points: [] };
+    let etoro = { configured: false };
     try {
-        [data, history] = await Promise.all([
+        [data, history, etoro] = await Promise.all([
             api.holdings(),
             api.holdingsHistory().catch(() => ({ points: [] })),
+            api.etoroStatus().catch(() => ({ configured: false })),
         ]);
     } catch (error) {
         setHtml(main, `<div class="empty"><p class="empty__title">Could not load holdings</p>
@@ -64,14 +66,14 @@ export async function renderHoldingsView(main) {
         return;
     }
 
-    setHtml(main, markup(data, history));
+    setHtml(main, markup(data, history, etoro));
     mountChart(data, history);
     bind(main);
 }
 
 // ==================================================================== markup
 
-function markup(data, history) {
+function markup(data, history, etoro) {
     const empty = !data.holdings || data.holdings.length === 0;
     const gainDir = fmt.direction(data.gainNok);
 
@@ -91,8 +93,17 @@ function markup(data, history) {
 
         <div class="hero__actions">
             <button type="button" class="button button--small" id="h-import">Import a broker export</button>
+            ${etoro?.configured
+                ? `<button type="button" class="button button--small" id="h-etoro">
+                       Sync eToro${etoro.demo ? ' (demo)' : ''}</button>`
+                : ''}
             <button type="button" class="button button--small button--ghost" id="h-refresh">Refresh prices</button>
         </div>
+        ${etoro && !etoro.configured ? `
+            <p class="note" style="margin-top:var(--space-2)">
+                eToro can sync automatically — add <code>ETORO_API_KEY</code> and
+                <code>ETORO_USER_KEY</code> to <code>.env</code> and restart.
+            </p>` : ''}
 
         ${empty ? emptyState() : `
             <div class="chart" style="height:220px">
@@ -159,11 +170,21 @@ function accountCard(account) {
 
 function holdingRow(holding) {
     const gainDir = fmt.direction(holding.gainNok);
+    // A leveraged or short position is not an ordinary shareholding, and a
+    // table that renders them identically is quietly lying about the risk.
+    const leverage = Number(holding.leverage);
+    const badges = [
+        holding.direction === 'SHORT' ? '<span class="side-chip" data-side="SELL">short</span>' : '',
+        Number.isFinite(leverage) && leverage > 1
+            ? `<span class="side-chip" data-side="SELL">${leverage}× leverage</span>` : '',
+    ].filter(Boolean).join(' ');
+
     return `
     <tr>
         <td>
             <strong>${escapeHtml(holding.symbol || holding.name)}</strong>
             ${holding.symbol ? `<br><span class="note">${escapeHtml(holding.name)}</span>` : ''}
+            ${badges ? `<br>${badges}` : ''}
         </td>
         <td class="note">${escapeHtml(holding.accountName)}</td>
         <td class="num">${fmt.shares(holding.quantity)}</td>
@@ -237,6 +258,26 @@ function bind(main) {
     qs('#h-refresh', main)?.addEventListener('click', async () => {
         toast('Refreshing prices…', 'info');
         await renderHoldingsView(main);
+    });
+
+    qs('#h-etoro', main)?.addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        const original = button.textContent;
+        button.textContent = 'Syncing…';
+        try {
+            const { result } = await api.etoroSync();
+            toast(`Synced ${result.positions} positions from ${result.accountName} `
+                + `(${result.accountCurrency} → NOK).`, 'success');
+            // Anything eToro flagged - leverage, shorts, unnamed instruments -
+            // is worth surfacing rather than burying in a log.
+            (result.notes ?? []).forEach((note) => toast(note, 'info'));
+            await renderHoldingsView(main);
+        } catch (error) {
+            toast(error.message, 'error');
+            button.disabled = false;
+            button.textContent = original;
+        }
     });
 
     const backdrop = qs('#h-import-backdrop', main);

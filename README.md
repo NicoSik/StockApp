@@ -50,10 +50,19 @@ into a real net-worth figure is not something to do by accident.
 
 Drop in an export and it becomes one combined total:
 
-| Broker | Export | Identified by |
+| Broker | How | Identified by |
 |---|---|---|
+| **eToro** | **live API** — no export needed | eToro instrument id |
 | **Nordnet** | *Aksjelister* (`.csv`) | name — no ISIN, no ticker |
 | **DNB** | *Beholdning* (`.xlsx`) | ticker |
+
+eToro is the only one of the three offering a personal API. Add
+`ETORO_API_KEY` and `ETORO_USER_KEY` to `.env` (Settings → Trading → API Key
+Management, Read permission) and a **Sync eToro** button appears. Its holdings
+are valued by eToro rather than re-priced here — an eToro account can mix plain
+shares with leveraged CFDs, shorts and copy portfolios, and only the first is
+something a share price could value. Leverage and short positions are labelled
+in the table rather than shown as though they were ordinary stock.
 
 - **Live pricing where it exists.** Oslo Børs and Stockholm listings come from
   Yahoo in their own currency; US equities from Alpaca. Norges Bank supplies the

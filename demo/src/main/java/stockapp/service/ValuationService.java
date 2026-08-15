@@ -45,6 +45,10 @@ public final class ValuationService {
         this.fx = fx;
     }
 
+    /**
+     * @param leverage  above 1 for a CFD, null for an ordinary holding
+     * @param direction LONG or SHORT where the distinction exists
+     */
     public record ValuedHolding(String symbol,
                                 String name,
                                 String kind,
@@ -58,7 +62,9 @@ public final class ValuationService {
                                 BigDecimal gainPercent,
                                 BigDecimal weight,
                                 boolean live,
-                                String accountName) {
+                                String accountName,
+                                BigDecimal leverage,
+                                String direction) {
     }
 
     public record AccountValuation(int id,
@@ -133,7 +139,8 @@ public final class ValuationService {
             weighted.add(new ValuedHolding(holding.symbol(), holding.name(), holding.kind(), holding.currency(),
                     holding.quantity(), holding.avgCost(), holding.price(), holding.valueNok(),
                     holding.costBasisNok(), holding.gainNok(), holding.gainPercent(),
-                    percent(holding.valueNok(), grandTotal), holding.live(), holding.accountName()));
+                    percent(holding.valueNok(), grandTotal), holding.live(), holding.accountName(),
+                    holding.leverage(), holding.direction()));
         }
         weighted.sort(Comparator.comparing(ValuedHolding::valueNok).reversed());
 
@@ -197,7 +204,9 @@ public final class ValuationService {
                 gain == null ? null : percent(gain, costBasis),
                 BigDecimal.ZERO,
                 live,
-                accountName);
+                accountName,
+                stored.leverage(),
+                stored.direction());
     }
 
     /**

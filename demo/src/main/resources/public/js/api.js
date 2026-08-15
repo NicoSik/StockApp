@@ -100,6 +100,8 @@ export const api = {
     commitImport: (previewId, overrides, skip) =>
         post('/api/holdings/import/commit', { previewId, overrides, skip }),
     lookupInstrument: (q, currency) => request(`/api/holdings/lookup${query({ q, currency })}`),
+    etoroStatus: () => request('/api/holdings/etoro/status'),
+    etoroSync: () => post('/api/holdings/etoro/sync'),
 
     alerts: () => request('/api/alerts'),
     createAlert: (symbol, direction, threshold) => post('/api/alerts', { symbol, direction, threshold }),

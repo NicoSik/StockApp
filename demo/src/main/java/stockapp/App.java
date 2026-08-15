@@ -3,6 +3,7 @@ package stockapp;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
 import stockapp.alpaca.AlpacaClient;
+import stockapp.etoro.EtoroClient;
 import stockapp.market.InstrumentResolver;
 import stockapp.market.YahooClient;
 import stockapp.model.Stock;
@@ -14,6 +15,7 @@ import stockapp.repo.PortfolioRepo;
 import stockapp.repo.StockRepo;
 import stockapp.repo.WatchlistRepo;
 import stockapp.service.AlertService;
+import stockapp.service.EtoroSyncService;
 import stockapp.service.FxService;
 import stockapp.service.ImportService;
 import stockapp.service.Importer;
@@ -74,6 +76,12 @@ public final class App {
         ImportService importService = new ImportService(accountRepo, instrumentRepo, resolver);
         ValuationService valuation = new ValuationService(accountRepo, yahoo, fxService);
 
+        // eToro is the one broker here with a real personal API, so its holdings
+        // arrive live rather than through a file. Optional: absent keys simply
+        // hide the feature.
+        EtoroClient etoroClient = new EtoroClient();
+        EtoroSyncService etoroSync = new EtoroSyncService(etoroClient, accountRepo, instrumentRepo, fxService);
+
         portfolios.ensurePortfolio(PORTFOLIO_NAME, new BigDecimal(Config.PAPER_STARTING_CASH));
         seedWatchlist(stocks, watchlists);
 
@@ -94,7 +102,8 @@ public final class App {
         scheduler.start();
 
         Api api = new Api(stocks, watchlists, alerts, marketData, portfolio, alertService, alpaca);
-        AggregatorApi aggregatorApi = new AggregatorApi(accountRepo, instrumentRepo, importService, valuation, yahoo);
+        AggregatorApi aggregatorApi = new AggregatorApi(
+                accountRepo, instrumentRepo, importService, valuation, yahoo, etoroSync, etoroClient);
 
         Javalin app = Javalin.create(config -> {
             config.jsonMapper(new GsonMapper());

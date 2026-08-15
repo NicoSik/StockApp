@@ -21,6 +21,13 @@ If a credential ever does reach a commit, **rotate it**. Removing it in a later
 commit does not remove it from history — git only ever adds — and rotation is
 what actually makes the exposed value worthless.
 
+**Grant the narrowest permission that works.** The eToro key needs only *Read*;
+this app never places an eToro order, so a key with Write permission would carry
+risk it has no use for. eToro also supports IP allow-listing and an expiry date
+on a key, both worth setting. Demo and Real are separate environments with
+separate keys — a demo key cannot touch a real account, which makes it the safer
+one to try first.
+
 ## Network exposure
 
 The app binds to localhost and has **no authentication**. That is appropriate

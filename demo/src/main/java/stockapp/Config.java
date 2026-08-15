@@ -47,6 +47,17 @@ public final class Config {
      */
     public static final String DATA_FEED = get("DATA_FEED", "sip");
 
+    // --- eToro --------------------------------------------------------------
+    /**
+     * Static keys from Settings &gt; Trading &gt; API Key Management. Read
+     * permission is enough; this app never places an order through eToro.
+     * Optional - the feature hides itself when they are absent.
+     */
+    public static final String ETORO_API_KEY = get("ETORO_API_KEY", "");
+    public static final String ETORO_USER_KEY = get("ETORO_USER_KEY", "");
+    /** Demo and Real are separate environments with separate keys. */
+    public static final boolean ETORO_DEMO = getBool("ETORO_DEMO", false);
+
     // --- Server -------------------------------------------------------------
     public static final int SERVER_PORT = getInt("SERVER_PORT", 4567);
 

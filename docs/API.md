@@ -254,6 +254,36 @@ implies, with a live price for each candidate so the right one is obvious.
    "type": "EQUITY", "price": 1.31, "currency": "USD" }]
 ```
 
+### `GET /api/holdings/etoro/status`
+```json
+{ "configured": true, "demo": false }
+```
+`configured` is false when the keys are absent, which is how the UI decides
+whether to offer a sync button at all.
+
+### `POST /api/holdings/etoro/sync`
+Pulls the live portfolio and writes it as a snapshot, the same destination a
+file import writes to.
+
+```json
+{ "result": { "accountId": 3, "accountName": "eToro", "snapshotId": 12,
+              "positions": 8, "accountCurrency": "USD",
+              "totalNok": 48210.55, "cashNok": 1204.10, "unnamed": 0,
+              "notes": ["2 leveraged position(s) — valued by eToro, not re-priced here."] },
+  "holdings": { "…": "a fresh valuation of everything" } }
+```
+
+`notes` carries anything worth a person's attention — leveraged positions,
+shorts, instruments that could not be named, or the fact that a demo account is
+being synced. 502 with an explanation when eToro rejects the keys, rate-limits,
+or is unreachable.
+
+### `GET /api/holdings/etoro/raw?path=`
+Returns an eToro response untouched. Everything in the client was written
+against documentation rather than a live account, so this is what shows the real
+shape when a field is not where it was expected. Read-only, and restricted to
+paths on eToro's own API.
+
 ### Also available
 `GET /api/holdings/accounts`, `GET /api/holdings/instruments` — the raw rows,
 useful for debugging. Nothing in the UI calls them.

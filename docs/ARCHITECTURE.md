@@ -197,6 +197,27 @@ Only a settled mapping is remembered as an alias. Caching an unverified guess
 would skip the price check on every future import — which is how a wrong match
 becomes permanent and invisible.
 
+### eToro: linked, not imported
+
+eToro is the only one of the three brokers with a personal API, so its holdings
+arrive live. Two static keys (`x-api-key`, `x-user-key`, plus a fresh
+`x-request-id` per request), no OAuth exchange, no refresh.
+
+The design decision that matters is that **eToro holdings are never re-priced.**
+`liquidationValueAccountCurrency` — what eToro says a position is currently
+worth — is taken as authoritative, and the only work left is USD→NOK.
+
+That is not laziness, it is the only correct option. An eToro account can hold
+plain shares, leveraged CFDs, short positions and copy portfolios side by side.
+Only the first is "N shares of X" that a share price could value; a 5× short or
+a copy portfolio is not. eToro already knows what each is worth. Resolving them
+to tickers and multiplying by a price would produce numbers that look right and
+are not.
+
+Leverage and direction are stored per holding and surfaced in the UI, because a
+table that renders a leveraged short identically to a shareholding is quietly
+lying about the risk.
+
 ### Snapshots, not mutations
 
 An import writes a whole dated snapshot. Re-importing replaces that date

@@ -141,6 +141,49 @@ public final class InstrumentRepo {
         }
     }
 
+    /**
+     * Creates or updates an instrument keyed by a broker's own identifier.
+     *
+     * <p>eToro identifies instruments by an opaque numeric id rather than a
+     * ticker, and several of its holdings - copy portfolios, leveraged CFDs -
+     * have no ticker at all. Keying on (source, external id) is the only stable
+     * identity available for those, and it survives eToro later supplying a
+     * name where it previously did not.
+     */
+    public Instrument upsertExternal(String source, String externalId, String symbol,
+                                     String name, String currency, String kind, String priceSource) {
+        String sql = """
+                INSERT INTO instrument (external_source, external_id, symbol, name, currency,
+                                        kind, price_source, verified, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, now())
+                ON CONFLICT (external_source, external_id) DO UPDATE
+                    SET symbol       = COALESCE(EXCLUDED.symbol, instrument.symbol),
+                        name         = COALESCE(EXCLUDED.name, instrument.name),
+                        currency     = COALESCE(EXCLUDED.currency, instrument.currency),
+                        kind         = EXCLUDED.kind,
+                        price_source = EXCLUDED.price_source,
+                        updated_at   = now()
+                RETURNING id
+                """;
+        try (Connection conn = db.connection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, source);
+            ps.setString(2, externalId);
+            ps.setString(3, symbol);
+            ps.setString(4, name);
+            ps.setString(5, currency);
+            ps.setString(6, kind == null ? "OTHER" : kind);
+            ps.setString(7, priceSource == null ? "NONE" : priceSource);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return findById(rs.getInt("id")).orElseThrow();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException(
+                    "Could not save " + source + " instrument " + externalId + ": " + e.getMessage(), e);
+        }
+    }
+
     /** Remembers that {@code alias} from {@code broker} means this instrument. */
     public void linkAlias(String broker, String alias, int instrumentId) {
         String sql = """
