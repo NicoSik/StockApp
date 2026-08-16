@@ -66,9 +66,11 @@ export async function renderHoldingsView(main) {
         return;
     }
 
+    currentHoldings = data.holdings ?? [];
     setHtml(main, markup(data, history, etoro));
     mountChart(data, history);
     bind(main);
+    bindSorting();
 }
 
 // ==================================================================== markup
@@ -129,12 +131,8 @@ function markup(data, history, etoro) {
             <section class="section">
                 <h2 class="section__title">Holdings</h2>
                 <div class="table__wrap"><table class="table">
-                    <thead><tr>
-                        <th>Instrument</th><th>Account</th><th class="num">Quantity</th>
-                        <th class="num">Price</th><th class="num">Value</th>
-                        <th class="num">Gain</th><th class="num">Weight</th><th>Priced</th>
-                    </tr></thead>
-                    <tbody>${data.holdings.map(holdingRow).join('')}</tbody>
+                    <thead><tr>${SORT_COLUMNS.map(headerCell).join('')}</tr></thead>
+                    <tbody id="h-rows">${sortHoldings(data.holdings).map(holdingRow).join('')}</tbody>
                 </table></div>
             </section>
         `}
@@ -174,6 +172,89 @@ function accountCard(account) {
             account.asOf ? ` · as of ${escapeHtml(account.asOf)}` : ''}${
             account.simulated ? ' · excluded from the total' : ''}</p>
     </div>`;
+}
+
+// ================================================================== sorting
+
+/**
+ * The sortable columns.
+ *
+ * <p>`numeric` decides both the alignment and the default direction: a value or
+ * a gain is most useful largest-first, whereas a name or an account is most
+ * useful A-Z. Getting that wrong means every click needs a second click.
+ */
+const SORT_COLUMNS = [
+    { key: 'name', label: 'Instrument', numeric: false },
+    { key: 'accountName', label: 'Account', numeric: false },
+    { key: 'quantity', label: 'Quantity', numeric: true },
+    { key: 'price', label: 'Price', numeric: true },
+    { key: 'valueNok', label: 'Value', numeric: true },
+    { key: 'gainNok', label: 'Gain', numeric: true },
+    { key: 'weight', label: 'Weight', numeric: true },
+    { key: 'live', label: 'Priced', numeric: false },
+];
+
+let sortKey = 'valueNok';
+let sortDesc = true;
+/** Kept so a re-sort does not need another round trip. */
+let currentHoldings = [];
+
+function headerCell(column) {
+    const active = column.key === sortKey;
+    const arrow = active ? (sortDesc ? ' ▼' : ' ▲') : '';
+    return `<th${column.numeric ? ' class="num"' : ''}>
+        <button type="button" data-sort="${column.key}"
+                aria-sort="${active ? (sortDesc ? 'descending' : 'ascending') : 'none'}"
+                style="font:inherit;color:${active ? 'var(--text)' : 'inherit'};cursor:pointer">
+            ${escapeHtml(column.label)}${arrow}
+        </button></th>`;
+}
+
+/**
+ * Sorts a copy, never the source array.
+ *
+ * <p>Nulls always sink to the bottom regardless of direction — a DNB holding
+ * with no cost basis has no gain to rank, and floating it to the top of an
+ * ascending sort would bury the actual losses.
+ */
+function sortHoldings(holdings) {
+    const column = SORT_COLUMNS.find((c) => c.key === sortKey) ?? SORT_COLUMNS[4];
+    return [...holdings].sort((a, b) => {
+        let left = a[sortKey];
+        let right = b[sortKey];
+        const leftMissing = left === null || left === undefined;
+        const rightMissing = right === null || right === undefined;
+        if (leftMissing && rightMissing) return 0;
+        if (leftMissing) return 1;
+        if (rightMissing) return -1;
+
+        let result;
+        if (column.numeric) {
+            result = Number(left) - Number(right);
+        } else if (typeof left === 'boolean') {
+            result = (left === right) ? 0 : (left ? -1 : 1);
+        } else {
+            result = String(left).localeCompare(String(right), 'nb');
+        }
+        return sortDesc ? -result : result;
+    });
+}
+
+function bindSorting() {
+    qsa('[data-sort]').forEach((button) => button.addEventListener('click', () => {
+        const key = button.dataset.sort;
+        if (key === sortKey) {
+            sortDesc = !sortDesc;
+        } else {
+            sortKey = key;
+            // Numbers start high-to-low, text starts A-Z.
+            sortDesc = SORT_COLUMNS.find((c) => c.key === key)?.numeric ?? true;
+        }
+        const table = button.closest('table');
+        setHtml(qs('#h-rows'), sortHoldings(currentHoldings).map(holdingRow).join(''));
+        setHtml(table.querySelector('thead tr'), SORT_COLUMNS.map(headerCell).join(''));
+        bindSorting();
+    }));
 }
 
 function holdingRow(holding) {

@@ -111,6 +111,13 @@ public final class App {
                 staticFiles.hostedPath = "/";
                 staticFiles.directory = "/public";
                 staticFiles.location = Location.CLASSPATH;
+                // Force revalidation on every request. The default max-age=0 is
+                // weak enough that browsers still serve ES modules from cache
+                // after an edit, which makes a shipped change look like it never
+                // happened. There is no CDN here and the files are a few KB, so
+                // correctness beats caching.
+                staticFiles.headers = java.util.Map.of(
+                        "Cache-Control", "no-cache, must-revalidate");
             });
             // The UI is one page with a client-side router. Serving index.html
             // for any unmatched path is what makes /AAPL and /portfolio work as
