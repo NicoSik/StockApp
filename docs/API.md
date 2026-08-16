@@ -192,9 +192,11 @@ imported holdings, valued in NOK.
 { "totalNok": 616577.95,
   "liveNok": 616000.94, "asOfNok": 577.01, "livePercent": 99.91,
   "gainNok": 338133.00, "costBasisNok": 278444.95,
+  "simulatedNok": 948449.33,
   "oldestAsOf": "2026-08-14", "accountCount": 2, "holdingCount": 37,
   "accounts": [{ "id": 1, "name": "Nordnet", "broker": "NORDNET",
-                 "asOf": "2026-08-14", "valueNok": 344745.55, "holdingCount": 27 }],
+                 "asOf": "2026-08-14", "valueNok": 344745.55, "holdingCount": 27,
+                 "simulated": false }],
   "holdings": [{ "symbol": "HAUTO.OL", "name": "Höegh Autoliners ASA",
                  "kind": "STOCK", "currency": "NOK", "quantity": 469,
                  "avgCost": null, "price": 189.20, "valueNok": 88734.80,
@@ -207,6 +209,11 @@ imported holdings, valued in NOK.
 current price, false means it is the value the broker reported at import.
 `avgCost` and everything derived from it are null for DNB holdings, which
 report cost basis only at portfolio level.
+
+`totalNok` counts **real money only**. An account with `simulated: true` — an
+eToro demo account — is excluded from it, from the live/as-of split and from
+`accountCount`, and its value is reported separately as `simulatedNok`. It still
+appears in `accounts` so it can be displayed and labelled.
 
 ### `GET /api/holdings/history`
 ```json

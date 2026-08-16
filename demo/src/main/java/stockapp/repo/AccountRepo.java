@@ -29,7 +29,12 @@ public final class AccountRepo {
         this.db = db;
     }
 
-    public record Account(int id, String name, String broker, String kind, String currency) {
+    /**
+     * @param simulated true when the money is not real - an eToro demo account.
+     *                  Such accounts are shown but never counted in a total.
+     */
+    public record Account(int id, String name, String broker, String kind, String currency,
+                          boolean simulated) {
     }
 
     public record Snapshot(int id, int accountId, LocalDate asOf, String sourceFile,
@@ -70,11 +75,12 @@ public final class AccountRepo {
         List<Account> accounts = new ArrayList<>();
         try (Connection conn = db.connection();
              PreparedStatement ps = conn.prepareStatement(
-                     "SELECT id, name, broker, kind, currency FROM account ORDER BY sort_order, id");
+                     "SELECT id, name, broker, kind, currency, simulated FROM account ORDER BY sort_order, id");
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
                 accounts.add(new Account(rs.getInt("id"), rs.getString("name"),
-                        rs.getString("broker"), rs.getString("kind"), rs.getString("currency")));
+                        rs.getString("broker"), rs.getString("kind"), rs.getString("currency"),
+                        rs.getBoolean("simulated")));
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Could not list accounts", e);
@@ -88,16 +94,25 @@ public final class AccountRepo {
 
     /** Returns the account for a broker, creating it on first import. */
     public Account ensureAccount(String name, String broker, String kind) {
+        return ensureAccount(name, broker, kind, false);
+    }
+
+    /**
+     * @param simulated marks an account whose money is not real, so its value is
+     *                  displayed but excluded from any total
+     */
+    public Account ensureAccount(String name, String broker, String kind, boolean simulated) {
         String insert = """
-                INSERT INTO account (name, broker, kind)
-                VALUES (?, ?, ?)
-                ON CONFLICT (name) DO NOTHING
+                INSERT INTO account (name, broker, kind, simulated)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (name) DO UPDATE SET simulated = EXCLUDED.simulated
                 """;
         try (Connection conn = db.connection();
              PreparedStatement ps = conn.prepareStatement(insert)) {
             ps.setString(1, name);
             ps.setString(2, broker);
             ps.setString(3, kind);
+            ps.setBoolean(4, simulated);
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new IllegalStateException("Could not create account " + name, e);

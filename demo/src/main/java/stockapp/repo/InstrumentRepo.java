@@ -156,7 +156,14 @@ public final class InstrumentRepo {
                 INSERT INTO instrument (external_source, external_id, symbol, name, currency,
                                         kind, price_source, verified, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, now())
-                ON CONFLICT (external_source, external_id) DO UPDATE
+                -- The WHERE repeats the index predicate on purpose. The unique
+                -- index is partial (external_id IS NOT NULL, so the rows that
+                -- have no external identity do not collide with each other),
+                -- and Postgres will only infer a partial index for ON CONFLICT
+                -- when the clause states the same predicate. Without it this
+                -- fails with "no unique or exclusion constraint matching the
+                -- ON CONFLICT specification".
+                ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL DO UPDATE
                     SET symbol       = COALESCE(EXCLUDED.symbol, instrument.symbol),
                         name         = COALESCE(EXCLUDED.name, instrument.name),
                         currency     = COALESCE(EXCLUDED.currency, instrument.currency),

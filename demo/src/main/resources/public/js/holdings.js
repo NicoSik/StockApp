@@ -120,6 +120,12 @@ function markup(data, history, etoro) {
                 ${data.accounts.filter(a => a.holdingCount > 0).map(accountCard).join('')}
             </div>
 
+            ${Number(data.simulatedNok) > 0 ? `
+                <p class="note" style="margin-top:var(--space-3)">
+                    ${kr(data.simulatedNok)} of practice money is shown above but deliberately
+                    left out of the total — it is not real.
+                </p>` : ''}
+
             <section class="section">
                 <h2 class="section__title">Holdings</h2>
                 <div class="table__wrap"><table class="table">
@@ -160,11 +166,13 @@ function freshnessBanner(data) {
 
 function accountCard(account) {
     return `
-    <div class="summary__item">
-        <p class="summary__label">${escapeHtml(account.name)}</p>
+    <div class="summary__item"${account.simulated ? ' style="opacity:.6"' : ''}>
+        <p class="summary__label">${escapeHtml(account.name)}
+            ${account.simulated ? '<span class="side-chip" data-side="SELL">not real</span>' : ''}</p>
         <p class="summary__value">${kr(account.valueNok)}</p>
         <p class="note">${account.holdingCount} holdings${
-            account.asOf ? ` · as of ${escapeHtml(account.asOf)}` : ''}</p>
+            account.asOf ? ` · as of ${escapeHtml(account.asOf)}` : ''}${
+            account.simulated ? ' · excluded from the total' : ''}</p>
     </div>`;
 }
 

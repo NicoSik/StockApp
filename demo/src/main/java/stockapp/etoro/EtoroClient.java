@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
+import okhttp3.Protocol;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
@@ -47,6 +48,12 @@ public final class EtoroClient {
         this.http = new OkHttpClient.Builder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .readTimeout(Duration.ofSeconds(30))
+                // eToro's API accepts the HTTP/2 upgrade during TLS negotiation
+                // and then never responds: the same request answers in 0.2s over
+                // HTTP/1.1 and hangs until timeout over HTTP/2. OkHttp prefers
+                // HTTP/2 by default, so it has to be pinned here or every call
+                // stalls for the full read timeout.
+                .protocols(List.of(Protocol.HTTP_1_1))
                 .build();
     }
 
@@ -166,7 +173,7 @@ public final class EtoroClient {
 
         for (int from = 0; from < wanted.size(); from += 50) {
             List<Long> batch = wanted.subList(from, Math.min(wanted.size(), from + 50));
-            HttpUrl url = HttpUrl.parse(BASE_URL + "/market-data/instruments/display-data")
+            HttpUrl url = HttpUrl.parse(BASE_URL + "/market-data/instruments")
                     .newBuilder()
                     .addQueryParameter("instrumentIds",
                             batch.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse(""))
@@ -174,7 +181,12 @@ public final class EtoroClient {
             try {
                 JsonObject json = get(url);
                 for (JsonObject row : rowsOf(json)) {
-                    long id = optLong(row, "instrumentId");
+                    // The metadata endpoint spells it instrumentID; the portfolio
+                    // endpoint spells the same thing instrumentId. Accept both.
+                    long id = optLong(row, "instrumentID");
+                    if (id <= 0) {
+                        id = optLong(row, "instrumentId");
+                    }
                     if (id <= 0) {
                         continue;
                     }
@@ -182,7 +194,8 @@ public final class EtoroClient {
                             id,
                             firstString(row, "symbolFull", "ticker", "symbol"),
                             firstString(row, "instrumentDisplayName", "name", "displayName"),
-                            firstString(row, "instrumentTypeDescription", "assetClass", "type")));
+                            // A numeric category, not a description.
+                            (int) optLong(row, "instrumentTypeID")));
                 }
             } catch (EtoroException e) {
                 // Names are cosmetic; a failure here must not lose the holdings.
@@ -192,7 +205,8 @@ public final class EtoroClient {
         return found;
     }
 
-    public record InstrumentInfo(long instrumentId, String ticker, String name, String type) {
+    /** @param typeId eToro's numeric instrument category; 0 when unknown */
+    public record InstrumentInfo(long instrumentId, String ticker, String name, int typeId) {
     }
 
     /**

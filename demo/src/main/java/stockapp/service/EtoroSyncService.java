@@ -167,8 +167,12 @@ public final class EtoroSyncService {
             notes.add("This is the eToro demo account, not real money.");
         }
 
+        // A demo account is flagged simulated so its practice balance is shown
+        // but never counted: eToro reports a demo portfolio exactly like a real
+        // one, cash included, and left unflagged it multiplies a net worth.
         AccountRepo.Account account = accounts.ensureAccount(
-                Config.ETORO_DEMO ? ACCOUNT_NAME + " (demo)" : ACCOUNT_NAME, BROKER, "LINKED");
+                Config.ETORO_DEMO ? ACCOUNT_NAME + " (demo)" : ACCOUNT_NAME,
+                BROKER, "LINKED", Config.ETORO_DEMO);
 
         BigDecimal reportedTotal = portfolio.totals().totalValue() == null
                 ? null
@@ -185,21 +189,26 @@ public final class EtoroSyncService {
                 currency, total, cashNok, unnamed, notes);
     }
 
-    /** Leverage is the giveaway: an ordinary holding is 1, a CFD is more. */
+    /**
+     * Leverage is the giveaway: an ordinary holding is 1, a CFD is more.
+     *
+     * <p>Otherwise the category comes from eToro's numeric
+     * {@code instrumentTypeID}. Only the values worth distinguishing here are
+     * mapped; anything else falls through to OTHER rather than being guessed
+     * at, since the kind is cosmetic and a wrong label is worse than a vague one.
+     */
     private static String kindOf(EtoroClient.InstrumentInfo info, boolean leveraged) {
         if (leveraged) {
             return "OTHER";
         }
-        String type = info == null || info.type() == null ? "" : info.type().toUpperCase();
-        if (type.contains("CRYPTO")) {
-            return "CRYPTO";
+        if (info == null) {
+            return "OTHER";
         }
-        if (type.contains("ETF")) {
-            return "ETF";
-        }
-        if (type.contains("STOCK") || type.contains("EQUIT")) {
-            return "STOCK";
-        }
-        return "OTHER";
+        return switch (info.typeId()) {
+            case 5 -> "STOCK";
+            case 6 -> "ETF";
+            case 10 -> "CRYPTO";
+            default -> "OTHER";
+        };
     }
 }

@@ -40,6 +40,7 @@ public final class Db implements AutoCloseable {
             "V006__search_indexes.sql",
             "V007__aggregator.sql",
             "V008__linked_accounts.sql",
+            "V009__simulated_accounts.sql",
     };
 
     private final HikariDataSource dataSource;

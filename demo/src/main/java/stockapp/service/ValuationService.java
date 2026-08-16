@@ -73,15 +73,22 @@ public final class ValuationService {
                                    LocalDate asOf,
                                    BigDecimal valueNok,
                                    int holdingCount,
+                                   boolean simulated,
                                    List<ValuedHolding> holdings) {
     }
 
+    /**
+     * @param totalNok     real money only; simulated accounts are excluded
+     * @param simulatedNok practice money, reported separately so it can be shown
+     *                     without ever being added to a net worth
+     */
     public record Totals(BigDecimal totalNok,
                          BigDecimal liveNok,
                          BigDecimal asOfNok,
                          BigDecimal livePercent,
                          BigDecimal gainNok,
                          BigDecimal costBasisNok,
+                         BigDecimal simulatedNok,
                          LocalDate oldestAsOf,
                          int accountCount,
                          int holdingCount,
@@ -97,13 +104,14 @@ public final class ValuationService {
         BigDecimal total = BigDecimal.ZERO;
         BigDecimal live = BigDecimal.ZERO;
         BigDecimal costBasis = BigDecimal.ZERO;
+        BigDecimal simulated = BigDecimal.ZERO;
         LocalDate oldest = null;
 
         for (AccountRepo.Account account : accounts.listAccounts()) {
             Optional<AccountRepo.Snapshot> snapshot = accounts.latestSnapshot(account.id());
             if (snapshot.isEmpty()) {
                 valued.add(new AccountValuation(account.id(), account.name(), account.broker(),
-                        null, BigDecimal.ZERO, 0, List.of()));
+                        null, BigDecimal.ZERO, 0, account.simulated(), List.of()));
                 continue;
             }
 
@@ -115,21 +123,30 @@ public final class ValuationService {
                 ValuedHolding holding = value(stored, account.name());
                 holdings.add(holding);
                 accountTotal = accountTotal.add(holding.valueNok());
-                if (holding.live()) {
-                    live = live.add(holding.valueNok());
-                }
-                if (holding.costBasisNok() != null) {
-                    costBasis = costBasis.add(holding.costBasisNok());
+                // Practice money is shown but never counted, so it is excluded
+                // from every aggregate - not just the headline figure, or the
+                // live/as-of percentages would still be computed against it.
+                if (!account.simulated()) {
+                    if (holding.live()) {
+                        live = live.add(holding.valueNok());
+                    }
+                    if (holding.costBasisNok() != null) {
+                        costBasis = costBasis.add(holding.costBasisNok());
+                    }
                 }
             }
 
-            total = total.add(accountTotal);
-            if (oldest == null || latest.asOf().isBefore(oldest)) {
-                oldest = latest.asOf();
+            if (account.simulated()) {
+                simulated = simulated.add(accountTotal);
+            } else {
+                total = total.add(accountTotal);
+                if (oldest == null || latest.asOf().isBefore(oldest)) {
+                    oldest = latest.asOf();
+                }
+                allHoldings.addAll(holdings);
             }
-            allHoldings.addAll(holdings);
             valued.add(new AccountValuation(account.id(), account.name(), account.broker(),
-                    latest.asOf(), money(accountTotal), holdings.size(), holdings));
+                    latest.asOf(), money(accountTotal), holdings.size(), account.simulated(), holdings));
         }
 
         // Weights need the grand total, so they are filled in afterwards.
@@ -154,8 +171,9 @@ public final class ValuationService {
                 percent(liveNok, grandTotal),
                 gain,
                 costBasis.signum() == 0 ? null : money(costBasis),
+                money(simulated),
                 oldest,
-                (int) valued.stream().filter(a -> a.holdingCount() > 0).count(),
+                (int) valued.stream().filter(a -> a.holdingCount() > 0 && !a.simulated()).count(),
                 weighted.size(),
                 valued,
                 weighted,

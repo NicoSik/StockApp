@@ -218,6 +218,31 @@ Leverage and direction are stored per holding and surfaced in the UI, because a
 table that renders a leveraged short identically to a shareholding is quietly
 lying about the risk.
 
+Three things about eToro's API that cost time and are not in its documentation:
+
+- **It hangs under HTTP/2.** The same request answers in 0.2s over HTTP/1.1 and
+  never responds over HTTP/2. OkHttp prefers HTTP/2 via ALPN, so the client
+  pins `Protocol.HTTP_1_1` — without it every call stalls for the full read
+  timeout and looks like a credentials problem.
+- **Instrument metadata lives at `/market-data/instruments?instrumentIds=`**,
+  and spells the key `instrumentID` where the portfolio endpoint spells the same
+  thing `instrumentId`. `instrumentTypeID` is a number, not a description.
+- **`x-request-id` must be a real GUID.** A malformed one is rejected with
+  `RequestIdNotValidGuid` rather than ignored.
+
+### Simulated accounts are shown, never counted
+
+An eToro demo account reports a portfolio exactly like a real one, practice cash
+included. Synced without a flag it lands in the combined total — the first demo
+sync here turned 616k NOK into 1.56M.
+
+`account.simulated` excludes such an account from every aggregate: the total,
+the live/as-of split, the cost basis and the account count. It stays visible,
+labelled, with its value reported separately as `simulatedNok`. This is the same
+rule the paper portfolio follows, and the flag lives on the account rather than
+being derived from configuration, because `ETORO_DEMO` can be flipped later
+while a snapshot taken under it stays in the database forever.
+
 ### Snapshots, not mutations
 
 An import writes a whole dated snapshot. Re-importing replaces that date
