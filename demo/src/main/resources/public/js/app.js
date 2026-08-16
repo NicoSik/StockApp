@@ -370,14 +370,17 @@ function bindDetail(detail) {
         formatValue: (value) => fmt.price(value),
         onScrub: (info) => {
             if (info) {
-                // Label what the change is measured against, not the hovered
-                // date. The date is already on the chart, following the cursor,
-                // whereas the baseline is invisible - and without naming it a
-                // reading like "26 Dec 2022 · down $19" looks like a comparison
-                // with today, which on a five-year chart is wildly wrong.
-                updatePriceLine(info.price, info.change, info.changePercent, state.baselineLabel);
+                // Two comparisons, because they answer different questions and
+                // both get asked. The coloured figure is measured against the
+                // range's baseline - that is what the line and the dashed
+                // reference actually depict, and it means scrubbing to the far
+                // right agrees with the headline instead of collapsing to zero.
+                // The trailing note is the distance from today, which is the
+                // one a person can check against the price they already know.
+                updatePriceLine(info.price, info.change, info.changePercent,
+                    `${state.baselineLabel} · ${describeVsToday(info.price)}`);
             } else {
-                updateQuoteDisplay(state.detail?.quote);
+                restoreRangeSummary();
             }
         },
     });
@@ -462,7 +465,46 @@ function updateRangeChangeLabel(candles, range) {
     const baseline = Number.isFinite(candles.baseline) ? candles.baseline : points[0].close;
     const change = last - baseline;
     // Not scrubbing: the change spans the whole window, so "Past 5Y" is exact.
-    updatePriceLine(last, change, baseline ? (change / baseline) * 100 : null, `Past ${range}`);
+    // Remembered so that releasing the cursor restores this rather than the
+    // day's move - a 5Y chart that reads "Today +$0.63" the moment you stop
+    // hovering is describing a different chart than the one on screen.
+    state.rangeSummary = {
+        price: last,
+        change,
+        changePercent: baseline ? (change / baseline) * 100 : null,
+        label: `Past ${range}`,
+    };
+    updatePriceLine(last, change, state.rangeSummary.changePercent, `Past ${range}`);
+}
+
+/**
+ * How the hovered price sits relative to the current one.
+ *
+ * <p>Written as "$176.38 below today" rather than a signed number: the sign on
+ * the coloured figure beside it already means something else (the move since
+ * the baseline), and two differently-signed numbers in one line invites reading
+ * one as the other.
+ */
+function describeVsToday(price) {
+    const today = state.detail?.quote?.price;
+    if (!Number.isFinite(today) || !Number.isFinite(price)) return '';
+    const gap = today - price;
+    if (Math.abs(gap) < 0.005) return 'today';
+    return `${fmt.usd(Math.abs(gap))} ${gap > 0 ? 'below' : 'above'} today`;
+}
+
+/**
+ * Puts the header back to whatever the current range was showing before a
+ * scrub. On 1D that is the live quote; on any longer range it is the summary
+ * for the window, not the day's move.
+ */
+function restoreRangeSummary() {
+    if (state.range === '1D' || !state.rangeSummary) {
+        updateQuoteDisplay(state.detail?.quote);
+        return;
+    }
+    const summary = state.rangeSummary;
+    updatePriceLine(summary.price, summary.change, summary.changePercent, summary.label);
 }
 
 function updateQuoteDisplay(quote) {
