@@ -134,7 +134,11 @@ public final class AccountRepo {
         return writeSnapshot(accountId, asOf, sourceFile, reportedTotalNok, null, holdings);
     }
 
-    /**  reportedCostBasisNok cost basis the broker stated for the account */
+    /**
+     * @param reportedCostBasisNok the cost basis the broker stated for the
+     *                             account as a whole, where no holding carries
+     *                             one of its own. DNB's report is like that.
+     */
     public int writeSnapshot(int accountId, LocalDate asOf, String sourceFile,
                              BigDecimal reportedTotalNok, BigDecimal reportedCostBasisNok,
                              List<StoredHolding> holdings) {

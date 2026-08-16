@@ -11,6 +11,10 @@ import java.util.List;
  *                         states one. DNB's report carries a Total sheet, which
  *                         lets the parser prove it read every row before the
  *                         import is allowed to proceed.
+ * @param reportedCostBasisNok what the portfolio cost, when the file says so
+ *                         for the account as a whole. DNB states Kostpris on
+ *                         its Total sheet and nothing per row, which makes this
+ *                         the only gain figure that account can report.
  */
 public record ParsedExport(String broker,
                            LocalDate asOf,
