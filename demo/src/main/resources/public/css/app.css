@@ -480,6 +480,18 @@ ul {
     font-size: var(--text-sm);
     text-align: center;
     padding: var(--space-5);
+    /* It is a message, never a target. Without this it sits over the whole
+       canvas and swallows every hover, so the crosshair silently stops working
+       while the chart still looks perfectly fine. */
+    pointer-events: none;
+}
+
+/* `display: grid` above beats the user-agent's `[hidden] { display: none }`,
+   so the overlay stays laid out at full size even when hidden - invisible,
+   because it has no text, but still there. This restores what `hidden` is
+   supposed to mean. */
+.chart__empty[hidden] {
+    display: none;
 }
 
 /* Range pills --------------------------------------------------------------- */
