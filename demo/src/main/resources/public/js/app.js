@@ -370,7 +370,12 @@ function bindDetail(detail) {
         formatValue: (value) => fmt.price(value),
         onScrub: (info) => {
             if (info) {
-                updatePriceLine(info.price, info.change, info.changePercent, fmt.tooltipLabel(info.point.time, state.range));
+                // Label what the change is measured against, not the hovered
+                // date. The date is already on the chart, following the cursor,
+                // whereas the baseline is invisible - and without naming it a
+                // reading like "26 Dec 2022 · down $19" looks like a comparison
+                // with today, which on a five-year chart is wildly wrong.
+                updatePriceLine(info.price, info.change, info.changePercent, state.baselineLabel);
             } else {
                 updateQuoteDisplay(state.detail?.quote);
             }
@@ -420,6 +425,13 @@ async function loadCandles(symbol, range) {
         }
         if (emptyEl) emptyEl.hidden = true;
 
+        // What every change on this range is measured against. For 1D that is
+        // the previous session's close; for anything longer it is the first
+        // point in the window, which is a date the user cannot otherwise see.
+        state.baselineLabel = range === '1D'
+            ? 'vs previous close'
+            : `vs ${fmt.axisLabel(candles.points[0].time, range === '1W' ? '1M' : range)}`;
+
         state.chart?.setData({ points: candles.points, baseline: candles.baseline, range });
         updateRangeChangeLabel(candles, range);
 
@@ -449,6 +461,7 @@ function updateRangeChangeLabel(candles, range) {
     const last = points[points.length - 1].close;
     const baseline = Number.isFinite(candles.baseline) ? candles.baseline : points[0].close;
     const change = last - baseline;
+    // Not scrubbing: the change spans the whole window, so "Past 5Y" is exact.
     updatePriceLine(last, change, baseline ? (change / baseline) * 100 : null, `Past ${range}`);
 }
 
