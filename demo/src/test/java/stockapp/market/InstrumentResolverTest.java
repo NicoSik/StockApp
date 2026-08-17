@@ -58,4 +58,51 @@ class InstrumentResolverTest {
     void suffixLookupIsCaseInsensitive() {
         assertEquals(".OL", YahooClient.suffixForCurrency("nok"));
     }
+
+    // ------------------------------------------------------------ candidates
+
+    private static YahooClient.Match match(String symbol, String type) {
+        return new YahooClient.Match(symbol, symbol, "X", type);
+    }
+
+    @Test
+    void theCurrencysOwnExchangeIsTriedFirst() {
+        List<String> ordered = InstrumentResolver.candidates(
+                List.of(match("EQNR.ST", "EQUITY"), match("EQNR.OL", "EQUITY")), ".OL");
+        assertEquals("EQNR.OL", ordered.get(0), "the Oslo listing should be tried before the Stockholm one");
+    }
+
+    @Test
+    void aForeignListingIsKeptAsAFallbackRatherThanDiscarded() {
+        // A Norwegian fund priced in NOK is listed as 0P....IR, so requiring
+        // .OL rejected every mutual fund outright. The price and currency
+        // checks are what identify it; they need to be reachable.
+        assertEquals(List.of("0P0000PS3V.IR"),
+                InstrumentResolver.candidates(List.of(match("0P0000PS3V.IR", "MUTUALFUND")), ".OL"));
+    }
+
+    @Test
+    void optionsAreNeverCandidates() {
+        // An option often trades near its underlying, so it can slip past the
+        // price check. Excluding it by type is what keeps that check honest.
+        assertTrue(InstrumentResolver.candidates(
+                List.of(match("AEYE260821C00006000", "OPTION")), "").isEmpty());
+    }
+
+    @Test
+    void aUsHoldingPrefersTheUnsuffixedSymbol() {
+        List<String> ordered = InstrumentResolver.candidates(
+                List.of(match("AAPL.MX", "EQUITY"), match("AAPL", "EQUITY")), "");
+        assertEquals("AAPL", ordered.get(0));
+    }
+
+    @Test
+    void theCandidateListIsCappedSoOneSearchCannotCostADozenQuotes() {
+        List<YahooClient.Match> many = List.of(
+                match("0PA.IR", "MUTUALFUND"), match("0PB.IR", "MUTUALFUND"),
+                match("0PC.IR", "MUTUALFUND"), match("0PD.IR", "MUTUALFUND"),
+                match("0PE.IR", "MUTUALFUND"), match("0PF.IR", "MUTUALFUND"),
+                match("0PG.IR", "MUTUALFUND"), match("0PH.IR", "MUTUALFUND"));
+        assertEquals(6, InstrumentResolver.candidates(many, ".OL").size());
+    }
 }
