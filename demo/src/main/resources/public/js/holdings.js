@@ -24,6 +24,8 @@ const nok2 = new Intl.NumberFormat('nb-NO', {
 });
 
 const kr = (value, precise = false) => {
+    // Number(null) is 0, so an absent amount would print as a confident "0 kr".
+    if (value === null || value === undefined || value === '') return fmt.EMPTY;
     const n = Number(value);
     if (!Number.isFinite(n)) return fmt.EMPTY;
     return precise ? nok2.format(n) : nok0.format(n);
