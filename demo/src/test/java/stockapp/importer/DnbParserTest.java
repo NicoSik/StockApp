@@ -162,6 +162,14 @@ class DnbParserTest {
     }
 
     @Test
+    void capturesThePortfolioCostBasisEvenThoughNoRowHasOne() {
+        // The only performance figure DNB gives. Discarding it left an account
+        // with a real 5 000 gain showing a dash.
+        ParsedExport export = parser.parse("r.xlsx", holdingsReport("30000"));
+        assertEquals(0, export.reportedCostBasisNok().compareTo(new BigDecimal("25000")));
+    }
+
+    @Test
     void refusesAFileWhoseRowsDoNotMatchItsOwnTotal() {
         // The failure this guards against is a silent partial read, which would
         // understate a net worth without anything looking wrong.

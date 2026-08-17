@@ -78,6 +78,7 @@ public final class ImportService {
                           LocalDate asOf,
                           List<PreviewRow> rows,
                           BigDecimal totalNok,
+                          BigDecimal costBasisNok,
                           int confirmed,
                           int needsReview,
                           int unresolved) {
@@ -138,6 +139,7 @@ public final class ImportService {
                 export.asOf(),
                 rows,
                 export.computedTotalNok(),
+                export.reportedCostBasisNok(),
                 confirmed, review, unresolved);
 
         pending.put(preview.id(), preview, PREVIEW_TTL);
@@ -217,7 +219,8 @@ public final class ImportService {
         }
 
         int snapshotId = accounts.writeSnapshot(
-                account.id(), preview.asOf(), preview.sourceFile(), preview.totalNok(), stored);
+                account.id(), preview.asOf(), preview.sourceFile(), preview.totalNok(),
+                preview.costBasisNok(), stored);
         pending.invalidate(previewId);
 
         return new Result(account.id(), account.name(), snapshotId, stored.size(), skipped, preview.totalNok());

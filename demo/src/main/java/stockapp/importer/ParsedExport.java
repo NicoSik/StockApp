@@ -16,7 +16,14 @@ public record ParsedExport(String broker,
                            LocalDate asOf,
                            String sourceFile,
                            List<ParsedHolding> holdings,
-                           BigDecimal reportedTotalNok) {
+                           BigDecimal reportedTotalNok,
+                           BigDecimal reportedCostBasisNok) {
+
+    /** For a broker that states no portfolio-level cost basis. */
+    public ParsedExport(String broker, LocalDate asOf, String sourceFile,
+                        List<ParsedHolding> holdings, BigDecimal reportedTotalNok) {
+        this(broker, asOf, sourceFile, holdings, reportedTotalNok, null);
+    }
 
     /** Sum of the parsed rows, for reconciliation against the stated total. */
     public BigDecimal computedTotalNok() {

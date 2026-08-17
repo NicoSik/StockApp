@@ -67,11 +67,25 @@ public final class ValuationService {
                                 String direction) {
     }
 
+    /**
+     * @param costBasisNok      what the holdings cost, where that is known
+     * @param gainNok           value minus cost over the measurable part only,
+     *                          which is why {@link #valueNok} minus
+     *                          {@link #costBasisNok} need not equal it
+     * @param costBasisReported true when the broker stated the cost basis for
+     *                          the account as a whole instead of per holding.
+     *                          DNB's report does exactly that, so its gain is
+     *                          real but cannot be attributed to a single row.
+     */
     public record AccountValuation(int id,
                                    String name,
                                    String broker,
                                    LocalDate asOf,
                                    BigDecimal valueNok,
+                                   BigDecimal costBasisNok,
+                                   BigDecimal gainNok,
+                                   BigDecimal gainPercent,
+                                   boolean costBasisReported,
                                    int holdingCount,
                                    boolean simulated,
                                    List<ValuedHolding> holdings) {
@@ -112,7 +126,7 @@ public final class ValuationService {
             Optional<AccountRepo.Snapshot> snapshot = accounts.latestSnapshot(account.id());
             if (snapshot.isEmpty()) {
                 valued.add(new AccountValuation(account.id(), account.name(), account.broker(),
-                        null, BigDecimal.ZERO, 0, account.simulated(), List.of()));
+                        null, BigDecimal.ZERO, null, null, null, false, 0, account.simulated(), List.of()));
                 continue;
             }
 
@@ -141,6 +155,19 @@ public final class ValuationService {
                 }
             }
 
+            // DNB states Kostpris for the portfolio and nothing per row, so
+            // without this the account showed a dash where it has a real gain.
+            boolean reported = false;
+            if (accountMeasured.signum() == 0 && latest.reportedCostBasisNok() != null
+                    && latest.reportedCostBasisNok().signum() != 0) {
+                accountCost = latest.reportedCostBasisNok();
+                accountMeasured = accountTotal;
+                reported = true;
+            }
+            BigDecimal accountGain = accountMeasured.signum() == 0
+                    ? null
+                    : money(accountMeasured.subtract(accountCost));
+
             if (account.simulated()) {
                 simulated = simulated.add(accountTotal);
             } else {
@@ -153,7 +180,11 @@ public final class ValuationService {
                 allHoldings.addAll(holdings);
             }
             valued.add(new AccountValuation(account.id(), account.name(), account.broker(),
-                    latest.asOf(), money(accountTotal), holdings.size(), account.simulated(), holdings));
+                    latest.asOf(), money(accountTotal),
+                    accountGain == null ? null : money(accountCost),
+                    accountGain,
+                    accountGain == null ? null : percent(accountGain, accountCost),
+                    reported, holdings.size(), account.simulated(), holdings));
         }
 
         // Weights need the grand total, so they are filled in afterwards.

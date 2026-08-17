@@ -163,11 +163,23 @@ function freshnessBanner(data) {
 }
 
 function accountCard(account) {
+    const hasGain = account.gainNok !== null && account.gainNok !== undefined;
+    // A gain is measured only over the holdings whose cost is known, so the
+    // percentage is not a return on the whole account unless it covers it.
+    // Both cases below are common enough that an unlabelled number would lie.
+    const partial = !account.costBasisReported
+        && (account.holdings || []).some(h => h.costBasisNok === null || h.costBasisNok === undefined);
+    const gainNote = account.costBasisReported
+        ? ' · reported by the broker'   // DNB states a portfolio total, no rows
+        : partial ? ' · on tracked holdings' : '';
     return `
     <div class="summary__item"${account.simulated ? ' style="opacity:.6"' : ''}>
         <p class="summary__label">${escapeHtml(account.name)}
             ${account.simulated ? '<span class="side-chip" data-side="SELL">not real</span>' : ''}</p>
         <p class="summary__value">${kr(account.valueNok)}</p>
+        ${hasGain ? `<p class="note ${fmt.direction(account.gainNok)}">${
+            fmt.arrow(account.gainNok)} ${kr(account.gainNok)} (${
+            fmt.signedPercent(account.gainPercent)})${gainNote}</p>` : ''}
         <p class="note">${account.holdingCount} holdings${
             account.asOf ? ` · as of ${escapeHtml(account.asOf)}` : ''}${
             account.simulated ? ' · excluded from the total' : ''}</p>

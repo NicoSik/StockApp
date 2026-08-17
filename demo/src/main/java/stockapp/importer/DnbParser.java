@@ -40,6 +40,8 @@ public final class DnbParser implements BrokerParser {
     private static final String COL_TICKER = "ticker";
     private static final String COL_QUANTITY = "antall";
     private static final String COL_VALUE = "verdi";
+    /** Portfolio-level only; the per-holding sheet has no equivalent. */
+    private static final String COL_COST_BASIS = "kostpris";
 
     /** DNB reports NOK; there is no currency column because there is no need. */
     private static final String CURRENCY = "NOK";
@@ -116,8 +118,14 @@ public final class DnbParser implements BrokerParser {
             throw new ImportException("No holdings could be read from the Aksjer sheet.");
         }
 
-        BigDecimal reportedTotal = readReportedTotal(sheets);
-        ParsedExport export = new ParsedExport(BROKER, LocalDate.now(), filename, holdings, reportedTotal);
+        // The Aksjer sheet has no cost price per row, so per-holding gain is
+        // genuinely unavailable. The Total sheet does state Kostpris for the
+        // account, which is the only performance figure DNB provides - worth
+        // carrying rather than discarding.
+        BigDecimal reportedTotal = readTotalField(sheets, COL_VALUE);
+        BigDecimal reportedCost = readTotalField(sheets, COL_COST_BASIS);
+        ParsedExport export = new ParsedExport(
+                BROKER, LocalDate.now(), filename, holdings, reportedTotal, reportedCost);
         reconcile(export);
         return export;
     }
@@ -143,13 +151,14 @@ public final class DnbParser implements BrokerParser {
         }
     }
 
-    private static BigDecimal readReportedTotal(Map<String, List<List<String>>> sheets) {
+    /** Reads one named column from the single row of the Total sheet. */
+    private static BigDecimal readTotalField(Map<String, List<List<String>>> sheets, String column) {
         List<List<String>> total = findSheet(sheets, SHEET_TOTAL);
         if (total == null || total.size() < 2) {
             return null;
         }
-        Integer valueIdx = headerIndex(total.get(0)).get(COL_VALUE);
-        return valueIdx == null ? null : number(XlsxReader.at(total.get(1), valueIdx));
+        Integer index = headerIndex(total.get(0)).get(column);
+        return index == null ? null : number(XlsxReader.at(total.get(1), index));
     }
 
     private static List<List<String>> findSheet(Map<String, List<List<String>>> sheets, String name) {

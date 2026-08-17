@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -91,6 +92,15 @@ class RealExportTest {
                 export.holdings().size(),
                 export.computedTotalNok().setScale(2, RoundingMode.HALF_UP),
                 export.reportedTotalNok());
+
+        // No row carries a cost price, but the Total sheet does for the account
+        // as a whole - the one figure that lets this account report a gain.
+        assertNotNull(export.reportedCostBasisNok(), "Total sheet should state Kostpris");
+        assertTrue(export.reportedCostBasisNok().signum() > 0);
+        System.out.printf("[real] DNB cost basis %s NOK, unrealised %s NOK%n",
+                export.reportedCostBasisNok(),
+                export.computedTotalNok().subtract(export.reportedCostBasisNok())
+                        .setScale(2, RoundingMode.HALF_UP));
 
         for (ParsedHolding holding : export.holdings()) {
             assertTrue(holding.ticker() != null && !holding.ticker().isBlank(),

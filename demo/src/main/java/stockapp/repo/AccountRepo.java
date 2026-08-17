@@ -38,7 +38,7 @@ public final class AccountRepo {
     }
 
     public record Snapshot(int id, int accountId, LocalDate asOf, String sourceFile,
-                           BigDecimal reportedTotalNok) {
+                           BigDecimal reportedTotalNok, BigDecimal reportedCostBasisNok) {
     }
 
     /**
@@ -131,6 +131,13 @@ public final class AccountRepo {
      */
     public int writeSnapshot(int accountId, LocalDate asOf, String sourceFile,
                              BigDecimal reportedTotalNok, List<StoredHolding> holdings) {
+        return writeSnapshot(accountId, asOf, sourceFile, reportedTotalNok, null, holdings);
+    }
+
+    /**  reportedCostBasisNok cost basis the broker stated for the account */
+    public int writeSnapshot(int accountId, LocalDate asOf, String sourceFile,
+                             BigDecimal reportedTotalNok, BigDecimal reportedCostBasisNok,
+                             List<StoredHolding> holdings) {
         try (Connection conn = db.connection()) {
             conn.setAutoCommit(false);
             try {
@@ -143,14 +150,15 @@ public final class AccountRepo {
 
                 int snapshotId;
                 try (PreparedStatement ps = conn.prepareStatement("""
-                        INSERT INTO snapshot (account_id, as_of, source_file, reported_total_nok)
-                        VALUES (?, ?, ?, ?)
+                        INSERT INTO snapshot (account_id, as_of, source_file, reported_total_nok, reported_cost_basis_nok)
+                        VALUES (?, ?, ?, ?, ?)
                         RETURNING id
                         """)) {
                     ps.setInt(1, accountId);
                     ps.setDate(2, Date.valueOf(asOf));
                     ps.setString(3, sourceFile);
                     ps.setBigDecimal(4, reportedTotalNok);
+                    ps.setBigDecimal(5, reportedCostBasisNok);
                     try (ResultSet rs = ps.executeQuery()) {
                         rs.next();
                         snapshotId = rs.getInt("id");
@@ -195,7 +203,7 @@ public final class AccountRepo {
 
     public Optional<Snapshot> latestSnapshot(int accountId) {
         String sql = """
-                SELECT id, account_id, as_of, source_file, reported_total_nok
+                SELECT id, account_id, as_of, source_file, reported_total_nok, reported_cost_basis_nok
                   FROM snapshot WHERE account_id = ?
                  ORDER BY as_of DESC, id DESC LIMIT 1
                 """;
@@ -208,7 +216,8 @@ public final class AccountRepo {
                 }
                 return Optional.of(new Snapshot(rs.getInt("id"), rs.getInt("account_id"),
                         rs.getDate("as_of").toLocalDate(), rs.getString("source_file"),
-                        rs.getBigDecimal("reported_total_nok")));
+                        rs.getBigDecimal("reported_total_nok"),
+                        rs.getBigDecimal("reported_cost_basis_nok")));
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Could not read the latest snapshot", e);
