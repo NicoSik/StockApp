@@ -120,6 +120,20 @@ class DnbParserTest {
         return workbook(sheets);
     }
 
+    /** As above, but the Kostpris cell does not satisfy value - cost = gain. */
+    private static byte[] reportWithCostBasis(String costBasis) {
+        Map<String, String[][]> sheets = new LinkedHashMap<>();
+        sheets.put("Total", new String[][] {
+                {"Urealisert", "Verdi", "Avkastning", "Realisert", "Kostpris"},
+                {"5000", "30000", "120.5", "0", costBasis}});
+        sheets.put("Aksjer", new String[][] {
+                {"Ticker", "Antall", "Verdi", "Avkastning"},
+                {"TEL", "165", "22159.5", "99"},
+                {"NHY", "117", "5000.5", "9.36"},
+                {"AKRBP", "62", "2840", "11.64"}});
+        return workbook(sheets);
+    }
+
     // --------------------------------------------------------------- tests
 
     @Test
@@ -167,6 +181,17 @@ class DnbParserTest {
         // with a real 5 000 gain showing a dash.
         ParsedExport export = parser.parse("r.xlsx", holdingsReport("30000"));
         assertEquals(0, export.reportedCostBasisNok().compareTo(new BigDecimal("25000")));
+    }
+
+    @Test
+    void ignoresACostBasisThatDoesNotSatisfyTheSheetsOwnArithmetic() {
+        // The Total sheet's headers do not reliably describe their cells - the
+        // real report files the total return percentage under "Endring i dag".
+        // So Kostpris is trusted only when value - cost equals Urealisert.
+        // Reporting no gain beats reporting an invented one.
+        ParsedExport export = parser.parse("r.xlsx", reportWithCostBasis("11111"));
+        assertNull(export.reportedCostBasisNok());
+        assertEquals(3, export.holdings().size(), "the import itself still succeeds");
     }
 
     @Test

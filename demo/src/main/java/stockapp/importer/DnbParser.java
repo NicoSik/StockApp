@@ -42,6 +42,8 @@ public final class DnbParser implements BrokerParser {
     private static final String COL_VALUE = "verdi";
     /** Portfolio-level only; the per-holding sheet has no equivalent. */
     private static final String COL_COST_BASIS = "kostpris";
+    /** Used to prove the cost basis is what its header claims - see below. */
+    private static final String COL_UNREALISED = "urealisert";
 
     /** DNB reports NOK; there is no currency column because there is no need. */
     private static final String CURRENCY = "NOK";
@@ -119,11 +121,13 @@ public final class DnbParser implements BrokerParser {
         }
 
         // The Aksjer sheet has no cost price per row, so per-holding gain is
-        // genuinely unavailable. The Total sheet does state Kostpris for the
-        // account, which is the only performance figure DNB provides - worth
-        // carrying rather than discarding.
+        // genuinely unavailable. Its Avkastning column is not that gain either:
+        // the rows sum to the Total sheet's change today, not to its unrealised
+        // gain. The Total sheet does state Kostpris for the account, which is
+        // the only performance figure DNB provides - worth carrying rather than
+        // discarding.
         BigDecimal reportedTotal = readTotalField(sheets, COL_VALUE);
-        BigDecimal reportedCost = readTotalField(sheets, COL_COST_BASIS);
+        BigDecimal reportedCost = costBasisIfItAddsUp(sheets, reportedTotal);
         ParsedExport export = new ParsedExport(
                 BROKER, LocalDate.now(), filename, holdings, reportedTotal, reportedCost);
         reconcile(export);
@@ -149,6 +153,36 @@ public final class DnbParser implements BrokerParser {
                             .formatted(computed.setScale(2, RoundingMode.HALF_UP), reported)
                             + "Refusing to import a partial read.");
         }
+    }
+
+    /**
+     * The stated cost basis, but only once the file has proved it is one.
+     *
+     * <p>The Total sheet's headers do not reliably describe the cells under
+     * them. In a real report the column headed {@code Endring i dag} holds not
+     * a change in kroner but the total return as a percentage; the one headed
+     * {@code Avkastning} holds the change today; and the name
+     * {@code Avkastning} appears twice in the same header row, so a
+     * name-to-index map silently keeps whichever comes last. Reading
+     * {@code Kostpris} by header alone is therefore a guess, and a wrong one
+     * would put a fabricated gain on screen - the failure this whole import
+     * path exists to avoid.
+     *
+     * <p>The sheet also states {@code Urealisert}, so it carries its own proof:
+     * value minus cost must equal unrealised gain, and on a real report it does
+     * to the øre. If the identity does not hold, the cell is not what its
+     * header says and no cost basis is reported - the account then shows no
+     * gain, which is the honest outcome.
+     */
+    private static BigDecimal costBasisIfItAddsUp(Map<String, List<List<String>>> sheets,
+                                                  BigDecimal reportedTotal) {
+        BigDecimal cost = readTotalField(sheets, COL_COST_BASIS);
+        BigDecimal unrealised = readTotalField(sheets, COL_UNREALISED);
+        if (cost == null || unrealised == null || reportedTotal == null) {
+            return null;
+        }
+        BigDecimal implied = reportedTotal.subtract(cost);
+        return implied.subtract(unrealised).abs().compareTo(RECONCILE_TOLERANCE) > 0 ? null : cost;
     }
 
     /** Reads one named column from the single row of the Total sheet. */
