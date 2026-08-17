@@ -1,6 +1,7 @@
 package stockapp.market;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -97,16 +98,26 @@ public final class InstrumentResolver {
         // Otherwise search by name. Try the name as written first, then again
         // with a trailing share-class letter removed - Nordnet writes
         // "Oscar Health A", which finds nothing until the " A" comes off.
+        // Every candidate is tried, and a confirmed match wins over a doubtful
+        // one however they were ordered. Returning the first non-UNRESOLVED
+        // answer instead would stop at whichever share class the search happened
+        // to rank first - and a fund search returns six of them, differing only
+        // by a trailing letter. The price check is what tells them apart, so it
+        // has to be allowed to see more than one.
+        Resolution doubtful = null;
         for (String query : queriesFor(name)) {
-            List<YahooClient.Match> matches = yahoo.search(query);
-            Optional<String> symbol = pick(matches, suffix);
-            if (symbol.isEmpty()) {
-                continue;
+            for (String symbol : candidates(yahoo.search(query), suffix)) {
+                Resolution attempt = verify(symbol, currency, expected);
+                if (attempt.status == Status.CONFIRMED) {
+                    return attempt;
+                }
+                if (doubtful == null && attempt.status == Status.NEEDS_REVIEW) {
+                    doubtful = attempt;
+                }
             }
-            Resolution byName = verify(symbol.get(), currency, expected);
-            if (byName.status != Status.UNRESOLVED) {
-                return byName;
-            }
+        }
+        if (doubtful != null) {
+            return doubtful;
         }
 
         return new Resolution(Status.UNRESOLVED, null, name, currency, null, expected,
@@ -150,8 +161,22 @@ public final class InstrumentResolver {
             java.util.regex.Pattern.compile("^[A-Z]{1,6}\\d{6}[CP]\\d{8}$");
 
     /**
-     * Picks the candidate whose symbol carries the suffix the currency implies.
-     * For US holdings that means a symbol with no exchange suffix at all.
+     * How many candidates one search is allowed to cost in quote requests.
+     * Yahoo is an unofficial endpoint; a wide search must not turn into a
+     * dozen calls.
+     */
+    private static final int MAX_CANDIDATES = 6;
+
+    /**
+     * The candidates worth trying, best first: symbols carrying the suffix the
+     * currency implies, then everything else the search returned.
+     *
+     * <p>The suffix is a preference rather than a requirement, because it is
+     * only a reliable signal for shares. A Norwegian <em>fund</em> priced in
+     * NOK is listed as {@code 0P0000PS3V.IR}, so demanding {@code .OL} rejected
+     * every mutual fund outright. Ordering rather than filtering keeps share
+     * resolution exactly as it was - anything that matched before is still
+     * tried first - while letting a fund reach the checks that can identify it.
      *
      * <p>Derivatives are excluded first, and that filter is not optional.
      * Searching "Oklo A" returns an OKLO <em>option</em> ahead of the share, and
@@ -160,14 +185,21 @@ public final class InstrumentResolver {
      * instrument type is what makes the price check trustworthy rather than
      * merely usually right.
      */
-    private static Optional<String> pick(List<YahooClient.Match> matches, String suffix) {
-        return matches.stream()
-                .filter(InstrumentResolver::isTradableInstrument)
-                .map(YahooClient.Match::symbol)
-                .filter(symbol -> suffix.isEmpty()
-                        ? !symbol.matches(".*\\.[A-Z]{1,3}$")
-                        : symbol.endsWith(suffix))
-                .findFirst();
+    static List<String> candidates(List<YahooClient.Match> matches, String suffix) {
+        List<String> preferred = new ArrayList<>();
+        List<String> rest = new ArrayList<>();
+        for (YahooClient.Match match : matches) {
+            if (!isTradableInstrument(match)) {
+                continue;
+            }
+            String symbol = match.symbol();
+            boolean fitsCurrency = suffix.isEmpty()
+                    ? !symbol.matches(".*\\.[A-Z]{1,3}$")
+                    : symbol.endsWith(suffix);
+            (fitsCurrency ? preferred : rest).add(symbol);
+        }
+        preferred.addAll(rest);
+        return preferred.size() > MAX_CANDIDATES ? List.copyOf(preferred.subList(0, MAX_CANDIDATES)) : preferred;
     }
 
     private static boolean isTradableInstrument(YahooClient.Match match) {
