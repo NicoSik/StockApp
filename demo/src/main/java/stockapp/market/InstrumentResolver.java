@@ -85,13 +85,30 @@ public final class InstrumentResolver {
         Double expected = expectedPrice == null ? null : expectedPrice.doubleValue();
         String suffix = YahooClient.suffixForCurrency(currency);
 
-        // A ticker is far stronger evidence than a name; DNB gives one, and for
-        // an Oslo listing "TEL" + ".OL" is unambiguous.
+        Resolution doubtfulByCode = null;
+
         if (ticker != null && !ticker.isBlank()) {
-            String candidate = ticker.trim().toUpperCase(Locale.ROOT) + suffix;
-            Resolution byTicker = verify(candidate, currency, expected);
-            if (byTicker.status != Status.UNRESOLVED) {
-                return byTicker;
+            String code = ticker.trim().toUpperCase(Locale.ROOT);
+            if (ISIN.matcher(code).matches()) {
+                // An ISIN is an identifier, not a ticker: appending ".OL" to it
+                // produces nothing. Yahoo's search resolves one exactly, which
+                // is the only way to name a fund share class without ambiguity.
+                for (String symbol : candidates(yahoo.search(code), suffix)) {
+                    Resolution attempt = verify(symbol, currency, expected);
+                    if (attempt.status == Status.CONFIRMED) {
+                        return attempt;
+                    }
+                    if (doubtfulByCode == null && attempt.status == Status.NEEDS_REVIEW) {
+                        doubtfulByCode = attempt;
+                    }
+                }
+            } else {
+                // A ticker is far stronger evidence than a name; DNB gives one,
+                // and for an Oslo listing "TEL" + ".OL" is unambiguous.
+                Resolution byTicker = verify(code + suffix, currency, expected);
+                if (byTicker.status != Status.UNRESOLVED) {
+                    return byTicker;
+                }
             }
         }
 
@@ -104,7 +121,7 @@ public final class InstrumentResolver {
         // to rank first - and a fund search returns six of them, differing only
         // by a trailing letter. The price check is what tells them apart, so it
         // has to be allowed to see more than one.
-        Resolution doubtful = null;
+        Resolution doubtful = doubtfulByCode;
         for (String query : queriesFor(name)) {
             for (String symbol : candidates(yahoo.search(query), suffix)) {
                 Resolution attempt = verify(symbol, currency, expected);
@@ -159,6 +176,14 @@ public final class InstrumentResolver {
      */
     private static final java.util.regex.Pattern OPTION_SYMBOL =
             java.util.regex.Pattern.compile("^[A-Z]{1,6}\\d{6}[CP]\\d{8}$");
+
+    /**
+     * An ISIN: two-letter country code, nine alphanumerics, check digit - for
+     * example {@code NO0010096985}. Every Norwegian fund has one, and it is the
+     * only identifier that names a share class without ambiguity.
+     */
+    static final java.util.regex.Pattern ISIN =
+            java.util.regex.Pattern.compile("^[A-Z]{2}[A-Z0-9]{9}\\d$");
 
     /**
      * How many candidates one search is allowed to cost in quote requests.
