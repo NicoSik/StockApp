@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Values every account in NOK.
@@ -114,7 +115,6 @@ public final class ValuationService {
     /** Values every account against its most recent snapshot. */
     public Totals valueEverything() {
         List<AccountValuation> valued = new ArrayList<>();
-        List<ValuedHolding> allHoldings = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
         BigDecimal live = BigDecimal.ZERO;
         BigDecimal costBasis = BigDecimal.ZERO;
@@ -177,7 +177,6 @@ public final class ValuationService {
                 if (oldest == null || latest.asOf().isBefore(oldest)) {
                     oldest = latest.asOf();
                 }
-                allHoldings.addAll(holdings);
             }
             valued.add(new AccountValuation(account.id(), account.name(), account.broker(),
                     latest.asOf(), money(accountTotal),
@@ -187,17 +186,32 @@ public final class ValuationService {
                     reported, holdings.size(), account.simulated(), holdings));
         }
 
-        // Weights need the grand total, so they are filled in afterwards.
+        // Weights need the grand total, so they are filled in afterwards - and
+        // onto each account's own copy too, so a caller showing one account's
+        // holdings gets the same rows as the combined table rather than a
+        // parallel set that silently reads 0%.
         BigDecimal grandTotal = money(total);
-        List<ValuedHolding> weighted = new ArrayList<>(allHoldings.size());
-        for (ValuedHolding holding : allHoldings) {
-            weighted.add(new ValuedHolding(holding.symbol(), holding.name(), holding.kind(), holding.currency(),
-                    holding.quantity(), holding.avgCost(), holding.price(), holding.valueNok(),
-                    holding.costBasisNok(), holding.gainNok(), holding.gainPercent(),
-                    percent(holding.valueNok(), grandTotal), holding.live(), holding.accountName(),
-                    holding.leverage(), holding.direction()));
+        List<AccountValuation> weightedAccounts = new ArrayList<>(valued.size());
+        for (AccountValuation account : valued) {
+            List<ValuedHolding> holdings = new ArrayList<>(account.holdings().size());
+            for (ValuedHolding holding : account.holdings()) {
+                // Practice money is not part of the total, so it has no share
+                // of it. Null reads as "-"; zero would read as "nothing".
+                holdings.add(withWeight(holding,
+                        account.simulated() ? null : percent(holding.valueNok(), grandTotal)));
+            }
+            weightedAccounts.add(new AccountValuation(account.id(), account.name(), account.broker(),
+                    account.asOf(), account.valueNok(), account.costBasisNok(), account.gainNok(),
+                    account.gainPercent(), account.costBasisReported(), account.holdingCount(),
+                    account.simulated(), holdings));
         }
-        weighted.sort(Comparator.comparing(ValuedHolding::valueNok).reversed());
+
+        // The combined table stays real money only, exactly as before.
+        List<ValuedHolding> weighted = weightedAccounts.stream()
+                .filter(account -> !account.simulated())
+                .flatMap(account -> account.holdings().stream())
+                .sorted(Comparator.comparing(ValuedHolding::valueNok).reversed())
+                .collect(Collectors.toCollection(ArrayList::new));
 
         BigDecimal liveNok = money(live);
         // Against the measured value, not the grand total: an account with no
@@ -213,11 +227,20 @@ public final class ValuationService {
                 measured.signum() == 0 ? null : money(costBasis),
                 money(simulated),
                 oldest,
-                (int) valued.stream().filter(a -> a.holdingCount() > 0 && !a.simulated()).count(),
+                (int) weightedAccounts.stream().filter(a -> a.holdingCount() > 0 && !a.simulated()).count(),
                 weighted.size(),
-                valued,
+                weightedAccounts,
                 weighted,
                 fx.latestRates());
+    }
+
+    /** The same holding with its share of the portfolio filled in. */
+    private static ValuedHolding withWeight(ValuedHolding holding, BigDecimal weight) {
+        return new ValuedHolding(holding.symbol(), holding.name(), holding.kind(), holding.currency(),
+                holding.quantity(), holding.avgCost(), holding.price(), holding.valueNok(),
+                holding.costBasisNok(), holding.gainNok(), holding.gainPercent(),
+                weight, holding.live(), holding.accountName(),
+                holding.leverage(), holding.direction());
     }
 
     /**

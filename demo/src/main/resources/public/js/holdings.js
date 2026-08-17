@@ -69,10 +69,18 @@ export async function renderHoldingsView(main) {
     }
 
     currentHoldings = data.holdings ?? [];
+    holdingsByAccount = new Map((data.accounts ?? []).map((a) => [a.name, a.holdings ?? []]));
+    // A refresh or a re-import should not silently dump you back to the
+    // combined view, but an account that has since gone away cannot be shown.
+    if (activeAccount !== null && !holdingsByAccount.has(activeAccount)) {
+        activeAccount = null;
+    }
+
     setHtml(main, markup(data, history, etoro));
     mountChart(data, history);
     bind(main);
     bindSorting();
+    bindAccountFilter();
 }
 
 // ==================================================================== markup
@@ -131,10 +139,10 @@ function markup(data, history, etoro) {
                 </p>` : ''}
 
             <section class="section">
-                <h2 class="section__title">Holdings</h2>
+                <div class="section__head" id="h-table-head">${tableHeading()}</div>
                 <div class="table__wrap"><table class="table">
                     <thead><tr>${SORT_COLUMNS.map(headerCell).join('')}</tr></thead>
-                    <tbody id="h-rows">${sortHoldings(data.holdings).map(holdingRow).join('')}</tbody>
+                    <tbody id="h-rows">${sortHoldings(visibleHoldings()).map(holdingRow).join('')}</tbody>
                 </table></div>
             </section>
         `}
@@ -164,7 +172,27 @@ function freshnessBanner(data) {
     </p>`;
 }
 
+/**
+ * The table's heading, which doubles as the only indication that a filter is
+ * on. A filtered table that still says plainly "Holdings" invites reading a
+ * subset as the whole portfolio.
+ */
+function tableHeading() {
+    const rows = visibleHoldings().length;
+    if (activeAccount === null) {
+        return `<h2 class="section__title">Holdings</h2>
+            <span class="note">${rows} across all accounts</span>`;
+    }
+    const subtotal = visibleHoldings()
+        .reduce((sum, h) => sum + (Number(h.valueNok) || 0), 0);
+    return `<h2 class="section__title">${escapeHtml(activeAccount)}</h2>
+        <span class="note">${rows} holding${rows === 1 ? '' : 's'} · ${kr(subtotal)}</span>
+        <button type="button" class="button button--small button--ghost" id="h-clear-filter">
+            Show all accounts</button>`;
+}
+
 function accountCard(account) {
+    const active = account.name === activeAccount;
     const hasGain = account.gainNok !== null && account.gainNok !== undefined;
     // A gain is measured only over the holdings whose cost is known, so the
     // percentage is not a return on the whole account unless it covers it.
@@ -174,8 +202,11 @@ function accountCard(account) {
     const gainNote = account.costBasisReported
         ? ' · reported by the broker'   // DNB states a portfolio total, no rows
         : partial ? ' · on tracked holdings' : '';
+    // A button, not a div with a click handler: it is focusable, reachable by
+    // keyboard and announced as pressed without any of that being reinvented.
     return `
-    <div class="summary__item"${account.simulated ? ' style="opacity:.6"' : ''}>
+    <button type="button" class="summary__item summary__item--filter" data-account="${escapeHtml(account.name)}"
+            aria-pressed="${active}"${account.simulated ? ' style="opacity:.6"' : ''}>
         <p class="summary__label">${escapeHtml(account.name)}
             ${account.simulated ? '<span class="side-chip" data-side="SELL">not real</span>' : ''}</p>
         <p class="summary__value">${kr(account.valueNok)}</p>
@@ -185,7 +216,8 @@ function accountCard(account) {
         <p class="note">${account.holdingCount} holdings${
             account.asOf ? ` · as of ${escapeHtml(account.asOf)}` : ''}${
             account.simulated ? ' · excluded from the total' : ''}</p>
-    </div>`;
+        <p class="note summary__hint">${active ? 'Showing only this — click to clear' : 'Click to show only this'}</p>
+    </button>`;
 }
 
 // ================================================================== sorting
@@ -212,6 +244,27 @@ let sortKey = 'valueNok';
 let sortDesc = true;
 /** Kept so a re-sort does not need another round trip. */
 let currentHoldings = [];
+/**
+ * The account whose holdings are on show, or null for all of them.
+ *
+ * <p>Held by name rather than id because that is what a holding row carries,
+ * and names are unique - the account table has a unique constraint on it.
+ */
+let activeAccount = null;
+/**
+ * Each account's own rows, including the simulated ones the combined table
+ * leaves out. Without this, filtering to a practice account would show an
+ * empty table, because its holdings are deliberately absent from the total.
+ */
+let holdingsByAccount = new Map();
+
+/** The rows the table should show, before sorting. */
+function visibleHoldings() {
+    if (activeAccount === null) {
+        return currentHoldings;
+    }
+    return holdingsByAccount.get(activeAccount) ?? [];
+}
 
 function headerCell(column) {
     const active = column.key === sortKey;
@@ -254,6 +307,47 @@ function sortHoldings(holdings) {
     });
 }
 
+/**
+ * Clicking an account card shows only that account; clicking the same one
+ * again clears it, so the control that switches the filter on is also the one
+ * that switches it off and there is no hunting for a way back.
+ */
+function bindAccountFilter() {
+    qsa('[data-account]').forEach((card) => card.addEventListener('click', () => {
+        const name = card.dataset.account;
+        activeAccount = activeAccount === name ? null : name;
+        refreshTable();
+    }));
+    qs('#h-clear-filter')?.addEventListener('click', () => {
+        activeAccount = null;
+        refreshTable();
+    });
+}
+
+/** Re-renders everything the filter touches, without another round trip. */
+function refreshTable() {
+    setHtml(qs('#h-rows'), sortHoldings(visibleHoldings()).map(holdingRow).join(''));
+
+    const head = qs('#h-table-head');
+    if (head) {
+        setHtml(head, tableHeading());
+    }
+    qsa('[data-account]').forEach((card) => {
+        card.setAttribute('aria-pressed', String(card.dataset.account === activeAccount));
+        const hint = card.querySelector('.summary__hint');
+        if (hint) {
+            hint.textContent = card.dataset.account === activeAccount
+                ? 'Showing only this — click to clear'
+                : 'Click to show only this';
+        }
+    });
+    // The heading is rebuilt above, so its clear button is a new element.
+    qs('#h-clear-filter')?.addEventListener('click', () => {
+        activeAccount = null;
+        refreshTable();
+    });
+}
+
 function bindSorting() {
     qsa('[data-sort]').forEach((button) => button.addEventListener('click', () => {
         const key = button.dataset.sort;
@@ -265,7 +359,7 @@ function bindSorting() {
             sortDesc = SORT_COLUMNS.find((c) => c.key === key)?.numeric ?? true;
         }
         const table = button.closest('table');
-        setHtml(qs('#h-rows'), sortHoldings(currentHoldings).map(holdingRow).join(''));
+        setHtml(qs('#h-rows'), sortHoldings(visibleHoldings()).map(holdingRow).join(''));
         setHtml(table.querySelector('thead tr'), SORT_COLUMNS.map(headerCell).join(''));
         bindSorting();
     }));
