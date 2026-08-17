@@ -12,6 +12,7 @@ import stockapp.repo.AccountRepo;
 import stockapp.repo.InstrumentRepo;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -39,6 +40,9 @@ public final class ImportService {
             List.of(new NordnetParser(), new DnbParser(), new DnbBeholdningParser());
     /** A preview is a scratch object; half an hour is more than a person needs. */
     private static final Duration PREVIEW_TTL = Duration.ofMinutes(30);
+
+    /** Norwegian funds are bought and reported in kroner; there is no choice. */
+    private static final String FUND_CURRENCY = "NOK";
 
     private final AccountRepo accounts;
     private final InstrumentRepo instruments;
@@ -96,7 +100,75 @@ public final class ImportService {
                         "Unrecognised file. Expected a Nordnet holdings export (.csv) or one of DNB's "
                                 + "two holdings reports (.xlsx)."));
 
-        ParsedExport export = parser.parse(filename, content);
+        return resolveInto(parser.parse(filename, content), null);
+    }
+
+    /**
+     * One fund, typed in by hand.
+     *
+     * <p>Neither broker's export lists funds - DNB's report covers shares only
+     * and Nordnet's has no fund rows - so the roughly one third of a portfolio
+     * held in them is invisible until it is entered.
+     *
+     * @param isin  optional, and the only unambiguous identifier: a fund search
+     *              returns six share classes that differ by one letter
+     * @param units what a NAV is derived from, so the price check can tell those
+     *              classes apart. Without it a fund can only be carried at the
+     *              value given, never priced.
+     */
+    public record ManualFund(String name, String isin, BigDecimal units,
+                             BigDecimal valueNok, BigDecimal costBasisNok) {
+    }
+
+    /**
+     * Resolves hand-entered funds without writing anything.
+     *
+     * <p>The result is an ordinary {@link Preview}, so these go through exactly
+     * the same confirm, re-map, skip and commit path as an imported file. A
+     * fund is not a special kind of holding once it has been identified.
+     */
+    public Preview previewFunds(String accountName, String broker, List<ManualFund> funds) {
+        if (funds == null || funds.isEmpty()) {
+            throw new ImportException("No funds were entered.");
+        }
+        List<ParsedHolding> holdings = new ArrayList<>(funds.size());
+        for (ManualFund fund : funds) {
+            if (fund.name() == null || fund.name().isBlank()) {
+                throw new ImportException("Every fund needs a name.");
+            }
+            if (fund.valueNok() == null || fund.valueNok().signum() <= 0) {
+                throw new ImportException("\"%s\" needs a value.".formatted(fund.name().trim()));
+            }
+            BigDecimal units = fund.units();
+            // Value over units is the NAV, which is what identifies the share
+            // class - the same derivation that resolves DNB's shares, which
+            // also arrive without a price column.
+            BigDecimal nav = units == null || units.signum() == 0
+                    ? null
+                    : fund.valueNok().divide(units, 6, RoundingMode.HALF_UP);
+            BigDecimal avgCost = fund.costBasisNok() == null || units == null || units.signum() == 0
+                    ? null
+                    : fund.costBasisNok().divide(units, 6, RoundingMode.HALF_UP);
+
+            holdings.add(new ParsedHolding(
+                    fund.name().trim(),
+                    fund.isin() == null || fund.isin().isBlank() ? null : fund.isin().trim(),
+                    FUND_CURRENCY, units, avgCost, nav, fund.valueNok(), fund.valueNok()));
+        }
+
+        ParsedExport export = new ParsedExport(broker, LocalDate.now(),
+                "entered by hand", holdings, null);
+        return resolveInto(export, accountName);
+    }
+
+    /**
+     * Turns a parsed export into a preview, resolving every row.
+     *
+     * @param accountName the account to file it under, or null to use the
+     *                    broker's default - funds live in their own account so
+     *                    that re-importing a share export cannot replace them
+     */
+    private Preview resolveInto(ParsedExport export, String accountName) {
         List<PreviewRow> rows = new ArrayList<>(export.holdings().size());
         int confirmed = 0;
         int review = 0;
@@ -137,7 +209,9 @@ public final class ImportService {
         Preview preview = new Preview(
                 UUID.randomUUID().toString(),
                 export.broker(),
-                defaultAccountName(export.broker()),
+                accountName != null && !accountName.isBlank()
+                        ? accountName.trim()
+                        : defaultAccountName(export.broker()),
                 export.sourceFile(),
                 export.asOf(),
                 rows,

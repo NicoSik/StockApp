@@ -72,6 +72,7 @@ public final class AggregatorApi {
         routes.get("/api/holdings/instruments", ctx -> ctx.json(instruments.listAll()));
 
         routes.post("/api/holdings/import/preview", this::previewImport);
+        routes.post("/api/holdings/funds/preview", this::previewFunds);
         routes.post("/api/holdings/import/commit", this::commitImport);
 
         routes.exception(EtoroException.class, (e, ctx) ->
@@ -103,6 +104,60 @@ public final class AggregatorApi {
             throw new ImportException("The upload could not be read.", e);
         }
         ctx.json(imports.preview(file.filename(), content));
+    }
+
+    /**
+     * Resolves hand-entered funds and returns an ordinary import preview, so
+     * the browser confirms and commits them through the existing path.
+     *
+     * <p>The whole account is sent every time, not one new fund, because a
+     * snapshot is the complete state of an account on a date. Accepting a
+     * single addition would write a snapshot containing only that fund and
+     * silently drop the rest.
+     */
+    private void previewFunds(Context ctx) {
+        JsonObject body = Json.parseObject(ctx.body());
+        String accountName = Json.requireString(body, "accountName");
+        String broker = Json.requireString(body, "broker");
+
+        if (!body.has("funds") || !body.get("funds").isJsonArray()) {
+            throw new Json.BadRequest("\"funds\" must be an array.");
+        }
+        List<ImportService.ManualFund> funds = new ArrayList<>();
+        for (JsonElement element : body.getAsJsonArray("funds")) {
+            if (!element.isJsonObject()) {
+                throw new Json.BadRequest("Each fund must be an object.");
+            }
+            JsonObject fund = element.getAsJsonObject();
+            funds.add(new ImportService.ManualFund(
+                    text(fund, "name"),
+                    text(fund, "isin"),
+                    decimal(fund, "units"),
+                    decimal(fund, "valueNok"),
+                    decimal(fund, "costBasisNok")));
+        }
+        ctx.json(imports.previewFunds(accountName, broker, funds));
+    }
+
+    private static String text(JsonObject json, String field) {
+        return json.has(field) && !json.get(field).isJsonNull()
+                ? json.get(field).getAsString() : null;
+    }
+
+    /** Blank means "not given", which is different from zero. */
+    private static BigDecimal decimal(JsonObject json, String field) {
+        if (!json.has(field) || json.get(field).isJsonNull()) {
+            return null;
+        }
+        String raw = json.get(field).getAsString().trim().replace(",", ".").replace(" ", "");
+        if (raw.isEmpty()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(raw);
+        } catch (NumberFormatException e) {
+            throw new Json.BadRequest("\"" + field + "\" is not a number: " + raw);
+        }
     }
 
     private void commitImport(Context ctx) {

@@ -99,6 +99,10 @@ export const api = {
     },
     commitImport: (previewId, overrides, skip) =>
         post('/api/holdings/import/commit', { previewId, overrides, skip }),
+
+    /** Funds are typed in, then confirmed and committed like any import. */
+    previewFunds: (accountName, broker, funds) =>
+        post('/api/holdings/funds/preview', { accountName, broker, funds }),
     lookupInstrument: (q, currency) => request(`/api/holdings/lookup${query({ q, currency })}`),
     etoroStatus: () => request('/api/holdings/etoro/status'),
     etoroSync: () => post('/api/holdings/etoro/sync'),

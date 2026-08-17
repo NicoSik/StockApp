@@ -105,6 +105,7 @@ function markup(data, history, etoro) {
 
         <div class="hero__actions">
             <button type="button" class="button button--small" id="h-import">Import a broker export</button>
+            <button type="button" class="button button--small" id="h-funds">Add or edit funds</button>
             ${etoro?.configured
                 ? `<button type="button" class="button button--small" id="h-etoro">
                        Sync eToro${etoro.demo ? ' (demo)' : ''}</button>`
@@ -452,6 +453,7 @@ function mountChart(data, history) {
 
 function bind(main) {
     qs('#h-import', main)?.addEventListener('click', openImport);
+    qs('#h-funds', main)?.addEventListener('click', openFunds);
     qs('#h-refresh', main)?.addEventListener('click', async () => {
         toast('Refreshing prices…', 'info');
         await renderHoldingsView(main);
@@ -520,6 +522,154 @@ function openImport() {
         const file = e.dataTransfer?.files?.[0];
         if (file) uploadFile(file);
     });
+}
+
+// ===================================================================== funds
+
+/**
+ * The fund accounts. Funds live apart from the share accounts on purpose: an
+ * import replaces its account's whole snapshot, so a fund filed under "DNB"
+ * would vanish the next time the DNB export was imported.
+ */
+const FUND_ACCOUNTS = [
+    { name: 'DNB Fond', broker: 'DNB' },
+    { name: 'Nordnet Fond', broker: 'NORDNET' },
+];
+
+/** Which fund account the dialog is editing. */
+let fundAccount = FUND_ACCOUNTS[0].name;
+
+function openFunds() {
+    const backdrop = qs('#h-import-backdrop');
+    if (!backdrop) return;
+    backdrop.hidden = false;
+    preview = null;
+    overrides = {};
+    skipped = new Set();
+    fixingRow = null;
+    renderFundForm();
+    document.addEventListener('keydown', escapeToClose);
+}
+
+/**
+ * Rows are pre-filled from what the account already holds, because saving
+ * writes a complete snapshot. Editing the whole list is the only shape that
+ * matches that: submitting one new fund would replace the account with it.
+ */
+function renderFundForm(rows) {
+    const existing = rows ?? (holdingsByAccount.get(fundAccount) ?? []).map((h) => ({
+        name: h.name || h.symbol || '',
+        isin: '',
+        units: h.quantity ?? '',
+        valueNok: h.valueNok ?? '',
+        costBasisNok: h.costBasisNok ?? '',
+    }));
+    const list = existing.length ? existing : [{ name: '', isin: '', units: '', valueNok: '', costBasisNok: '' }];
+
+    setHtml(qs('#h-import-body'), `
+    <div style="padding:var(--space-5); max-height:80vh; overflow:auto">
+        <h2 class="card__title"><span>Funds</span></h2>
+        <p class="note">Neither broker exports funds, so they are entered here. Give the units
+           and the current value and the fund is matched to a live price — the value ÷ units is
+           what tells the share classes apart. An ISIN, if you have it, is exact.</p>
+
+        <p style="margin-top:var(--space-4)">
+            <label class="note" for="h-fund-account">Account</label><br>
+            <select id="h-fund-account" style="margin-top:var(--space-2)">
+                ${FUND_ACCOUNTS.map((a) => `<option value="${escapeHtml(a.name)}"${
+                    a.name === fundAccount ? ' selected' : ''}>${escapeHtml(a.name)}</option>`).join('')}
+            </select>
+        </p>
+
+        <div class="table__wrap" style="margin-top:var(--space-4)"><table class="table">
+            <thead><tr>
+                <th>Fund</th><th>ISIN <span class="note">optional</span></th>
+                <th class="num">Units</th><th class="num">Value (NOK)</th>
+                <th class="num">Cost <span class="note">optional</span></th><th></th>
+            </tr></thead>
+            <tbody id="h-fund-rows">${list.map(fundRow).join('')}</tbody>
+        </table></div>
+
+        <div class="hero__actions" style="margin-top:var(--space-4)">
+            <button type="button" class="button button--small button--ghost" id="h-fund-add">Add a fund</button>
+            <button type="button" class="button button--small" id="h-fund-save">Match against live prices</button>
+            <button type="button" class="button button--small button--ghost" id="h-fund-cancel">Cancel</button>
+        </div>
+        <p class="note" id="h-fund-error" style="margin-top:var(--space-3)"></p>
+    </div>`);
+
+    qs('#h-fund-account')?.addEventListener('change', (e) => {
+        fundAccount = e.target.value;
+        renderFundForm();          // reload from the newly chosen account
+    });
+    qs('#h-fund-add')?.addEventListener('click', () => {
+        renderFundForm([...readFundRows(), { name: '', isin: '', units: '', valueNok: '', costBasisNok: '' }]);
+    });
+    qs('#h-fund-cancel')?.addEventListener('click', closeImport);
+    qs('#h-fund-save')?.addEventListener('click', submitFunds);
+    bindFundRowRemoval();
+}
+
+function fundRow(row) {
+    const cell = (field, value, extra = '') =>
+        `<td${extra}><input type="text" data-fund="${field}" value="${escapeHtml(String(value ?? ''))}"
+             style="width:100%;background:transparent;border:1px solid var(--border);
+                    border-radius:var(--radius-sm);padding:var(--space-2)"></td>`;
+    return `<tr>
+        ${cell('name', row.name)}
+        ${cell('isin', row.isin)}
+        ${cell('units', row.units, ' class="num"')}
+        ${cell('valueNok', row.valueNok, ' class="num"')}
+        ${cell('costBasisNok', row.costBasisNok, ' class="num"')}
+        <td><button type="button" class="button button--small button--ghost" data-fund-remove>Remove</button></td>
+    </tr>`;
+}
+
+function bindFundRowRemoval() {
+    qsa('[data-fund-remove]').forEach((button) => button.addEventListener('click', () => {
+        const rows = readFundRows();
+        const index = [...qsa('#h-fund-rows tr')].indexOf(button.closest('tr'));
+        rows.splice(index, 1);
+        renderFundForm(rows);
+    }));
+}
+
+/** Reads the table back out, so a re-render never loses what was typed. */
+function readFundRows() {
+    return [...qsa('#h-fund-rows tr')].map((tr) => {
+        const value = (field) => qs(`[data-fund="${field}"]`, tr)?.value.trim() ?? '';
+        return {
+            name: value('name'), isin: value('isin'), units: value('units'),
+            valueNok: value('valueNok'), costBasisNok: value('costBasisNok'),
+        };
+    });
+}
+
+async function submitFunds() {
+    const rows = readFundRows().filter((r) => r.name || r.valueNok);
+    const error = qs('#h-fund-error');
+    if (!rows.length) {
+        if (error) error.textContent = 'Add at least one fund first.';
+        return;
+    }
+    const broker = FUND_ACCOUNTS.find((a) => a.name === fundAccount)?.broker ?? 'DNB';
+
+    setHtml(qs('#h-import-body'),
+        '<div class="empty"><p class="empty__title">Matching…</p><p class="note">Checking each fund against live prices.</p></div>');
+    try {
+        preview = await api.previewFunds(fundAccount, broker, rows);
+        overrides = {};
+        skipped = new Set();
+        fixingRow = null;
+        setHtml(qs('#h-import-body'), previewShell());
+        renderPreviewTable();
+    } catch (e) {
+        // Back to the form with the rows intact - retyping them would be worse
+        // than the error itself.
+        renderFundForm(rows);
+        const back = qs('#h-fund-error');
+        if (back) back.textContent = e.message;
+    }
 }
 
 function closeImport() {
