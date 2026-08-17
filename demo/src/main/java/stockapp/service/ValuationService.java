@@ -104,6 +104,7 @@ public final class ValuationService {
         BigDecimal total = BigDecimal.ZERO;
         BigDecimal live = BigDecimal.ZERO;
         BigDecimal costBasis = BigDecimal.ZERO;
+        BigDecimal measured = BigDecimal.ZERO;
         BigDecimal simulated = BigDecimal.ZERO;
         LocalDate oldest = null;
 
@@ -118,21 +119,25 @@ public final class ValuationService {
             AccountRepo.Snapshot latest = snapshot.get();
             List<ValuedHolding> holdings = new ArrayList<>();
             BigDecimal accountTotal = BigDecimal.ZERO;
+            BigDecimal accountCost = BigDecimal.ZERO;
+            // Value of the rows whose cost is known. Gain is measured against
+            // this, never against the account total, so a holding with no cost
+            // basis cannot masquerade as pure profit.
+            BigDecimal accountMeasured = BigDecimal.ZERO;
 
             for (AccountRepo.StoredHolding stored : accounts.holdings(latest.id())) {
                 ValuedHolding holding = value(stored, account.name());
                 holdings.add(holding);
                 accountTotal = accountTotal.add(holding.valueNok());
+                if (holding.costBasisNok() != null) {
+                    accountCost = accountCost.add(holding.costBasisNok());
+                    accountMeasured = accountMeasured.add(holding.valueNok());
+                }
                 // Practice money is shown but never counted, so it is excluded
                 // from every aggregate - not just the headline figure, or the
                 // live/as-of percentages would still be computed against it.
-                if (!account.simulated()) {
-                    if (holding.live()) {
-                        live = live.add(holding.valueNok());
-                    }
-                    if (holding.costBasisNok() != null) {
-                        costBasis = costBasis.add(holding.costBasisNok());
-                    }
+                if (!account.simulated() && holding.live()) {
+                    live = live.add(holding.valueNok());
                 }
             }
 
@@ -140,6 +145,8 @@ public final class ValuationService {
                 simulated = simulated.add(accountTotal);
             } else {
                 total = total.add(accountTotal);
+                costBasis = costBasis.add(accountCost);
+                measured = measured.add(accountMeasured);
                 if (oldest == null || latest.asOf().isBefore(oldest)) {
                     oldest = latest.asOf();
                 }
@@ -162,7 +169,9 @@ public final class ValuationService {
         weighted.sort(Comparator.comparing(ValuedHolding::valueNok).reversed());
 
         BigDecimal liveNok = money(live);
-        BigDecimal gain = costBasis.signum() == 0 ? null : money(grandTotal.subtract(costBasis));
+        // Against the measured value, not the grand total: an account with no
+        // cost basis at all would otherwise report its entire value as profit.
+        BigDecimal gain = measured.signum() == 0 ? null : money(measured.subtract(costBasis));
 
         return new Totals(
                 grandTotal,
@@ -170,7 +179,7 @@ public final class ValuationService {
                 money(grandTotal.subtract(liveNok)),
                 percent(liveNok, grandTotal),
                 gain,
-                costBasis.signum() == 0 ? null : money(costBasis),
+                measured.signum() == 0 ? null : money(costBasis),
                 money(simulated),
                 oldest,
                 (int) valued.stream().filter(a -> a.holdingCount() > 0 && !a.simulated()).count(),
