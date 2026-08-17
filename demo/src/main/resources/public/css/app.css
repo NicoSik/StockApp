@@ -180,6 +180,10 @@ ul {
     place-items: center;
     width: 36px;
     height: 36px;
+    /* Never squash. As a flex item these were shrinking to 18px on a phone -
+       half a tap target, and the last one was pushed off the edge entirely,
+       where .app's overflow-x: hidden clipped it out of reach. */
+    flex-shrink: 0;
     border-radius: var(--radius-pill);
     color: var(--text-secondary);
     transition: background var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease);
@@ -1154,6 +1158,12 @@ ul {
 @media (max-width: 560px) {
     .topbar__nav .nav-link {
         padding: var(--space-2);
+    }
+
+    /* The widest thing in the topbar and the least urgent: it reports the US
+       session, which no longer fits beside the controls that do something. */
+    .market-pill {
+        display: none;
     }
 
     .ranges {
