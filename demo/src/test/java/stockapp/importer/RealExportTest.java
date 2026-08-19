@@ -112,6 +112,33 @@ class RealExportTest {
     }
 
     @Test
+    void parsesTheRealDnbBeholdningExport() {
+        byte[] content = read("dnb-beholdning.xlsx");
+        DnbBeholdningParser parser = new DnbBeholdningParser();
+
+        assertTrue(parser.supports("dnb-beholdning.xlsx", content),
+                "the real export should be recognised by content");
+
+        ParsedExport export = parser.parse("dnb-beholdning.xlsx", content);
+        assertFalse(export.holdings().isEmpty(), "expected holdings");
+        System.out.printf("[real] DNB Beholdning: %d holdings, %s NOK as of %s%n",
+                export.holdings().size(),
+                export.computedTotalNok().setScale(2, RoundingMode.HALF_UP),
+                export.asOf());
+
+        // This layout states no total, so there is nothing to reconcile against
+        // - which is exactly why every sheet has to be read. The check that is
+        // available is per row: the stated price has to explain the value.
+        for (ParsedHolding holding : export.holdings()) {
+            assertTrue(holding.name() != null && !holding.name().isBlank(), "every row needs a name");
+            assertTrue(holding.quantity().signum() > 0);
+            assertTrue(holding.valueNok().signum() >= 0);
+            assertTrue(holding.lastPrice() != null && holding.lastPrice().signum() > 0,
+                    holding.name() + " should carry a NOK price - is a holding priced in its own currency?");
+        }
+    }
+
+    @Test
     void theTwoAccountsCombineIntoOneTotal() {
         byte[] nordnet = read("nordnet-sample.csv");
         byte[] dnb = read("dnb-rapport.xlsx");
