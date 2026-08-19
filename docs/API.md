@@ -189,19 +189,19 @@ imported holdings, valued in NOK.
 
 ### `GET /api/holdings`
 ```json
-{ "totalNok": 616577.95,
-  "liveNok": 616000.94, "asOfNok": 577.01, "livePercent": 99.91,
-  "gainNok": 338133.00, "costBasisNok": 278444.95,
-  "simulatedNok": 948449.33,
-  "oldestAsOf": "2026-08-14", "accountCount": 2, "holdingCount": 37,
+{ "totalNok": 412500.00,
+  "liveNok": 411900.00, "asOfNok": 600.00, "livePercent": 99.85,
+  "gainNok": 92500.00, "costBasisNok": 320000.00,
+  "simulatedNok": 250000.00,
+  "oldestAsOf": "2026-08-14", "accountCount": 2, "holdingCount": 12,
   "accounts": [{ "id": 1, "name": "Nordnet", "broker": "NORDNET",
-                 "asOf": "2026-08-14", "valueNok": 344745.55, "holdingCount": 27,
+                 "asOf": "2026-08-14", "valueNok": 230000.00, "holdingCount": 8,
                  "simulated": false }],
-  "holdings": [{ "symbol": "HAUTO.OL", "name": "Höegh Autoliners ASA",
-                 "kind": "STOCK", "currency": "NOK", "quantity": 469,
-                 "avgCost": null, "price": 189.20, "valueNok": 88734.80,
+  "holdings": [{ "symbol": "MOWI.OL", "name": "Mowi ASA",
+                 "kind": "STOCK", "currency": "NOK", "quantity": 120,
+                 "avgCost": null, "price": 300.25, "valueNok": 36030.00,
                  "costBasisNok": null, "gainNok": null, "gainPercent": null,
-                 "weight": 14.38, "live": true, "accountName": "DNB" }],
+                 "weight": 8.73, "live": true, "accountName": "DNB" }],
   "fxRates": { "USD": 9.4515, "SEK": 0.994 } }
 ```
 
@@ -217,7 +217,7 @@ appears in `accounts` so it can be displayed and labelled.
 
 ### `GET /api/holdings/history`
 ```json
-{ "points": [{ "date": "2026-08-14", "value": 614696.54 }] }
+{ "points": [{ "date": "2026-08-14", "value": 411950.20 }] }
 ```
 One point per snapshot date, summed across accounts.
 
@@ -227,13 +227,13 @@ writing anything.
 
 ```json
 { "id": "98cf1e9d-…", "broker": "NORDNET", "accountName": "Nordnet",
-  "asOf": "2026-08-14", "totalNok": 342864.13,
-  "confirmed": 25, "needsReview": 2, "unresolved": 0,
-  "rows": [{ "index": 20, "name": "AEye A", "ticker": null, "currency": "USD",
-             "quantity": 378, "avgCost": 4.2303, "lastPrice": 1.29,
-             "valueNok": 4604.97, "status": "NEEDS_REVIEW", "symbol": "AEYE",
-             "resolvedName": "AudioEye, Inc.", "livePrice": 7.99,
-             "note": "Price differs by 519% — possible split, stale export, or wrong instrument",
+  "asOf": "2026-08-14", "totalNok": 230000.00,
+  "confirmed": 6, "needsReview": 1, "unresolved": 1,
+  "rows": [{ "index": 5, "name": "AEye A", "ticker": null, "currency": "USD",
+             "quantity": 200, "avgCost": 3.15, "lastPrice": 2.10,
+             "valueNok": 3969.00, "status": "NEEDS_REVIEW", "symbol": "AEYE",
+             "resolvedName": "AudioEye, Inc.", "livePrice": 12.60,
+             "note": "Price differs by 500% — possible split, stale export, or wrong instrument",
              "knownAlias": false }] }
 ```
 
@@ -242,7 +242,7 @@ writing anything.
 
 ### `POST /api/holdings/import/commit`
 ```json
-{ "previewId": "98cf1e9d-…", "overrides": { "20": "LIDR" }, "skip": [26] }
+{ "previewId": "98cf1e9d-…", "overrides": { "5": "LIDR" }, "skip": [7] }
 ```
 `overrides` maps a row index to a symbol the user chose by hand; `skip` leaves
 rows out entirely. Both may be empty. Returns the result plus a fresh valuation.
@@ -258,7 +258,7 @@ implies, with a live price for each candidate so the right one is obvious.
 
 ```json
 [{ "symbol": "LIDR", "name": "AEye, Inc.", "exchange": "NMS",
-   "type": "EQUITY", "price": 1.31, "currency": "USD" }]
+   "type": "EQUITY", "price": 2.14, "currency": "USD" }]
 ```
 
 ### `GET /api/holdings/etoro/status`

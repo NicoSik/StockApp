@@ -3,7 +3,7 @@
 -- An eToro demo account reports a portfolio exactly like a real one, cash and
 -- all. Synced without a flag, its practice balance lands in the combined total
 -- and a net worth reads several times what it is - the first demo sync here
--- turned 616k NOK into 1.56M.
+-- turned 410k NOK into 1.4M.
 --
 -- This is the same rule the paper portfolio already follows: simulated money is
 -- shown, never counted. The flag lives on the account rather than being derived

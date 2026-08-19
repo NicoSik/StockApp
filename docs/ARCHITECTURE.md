@@ -234,7 +234,7 @@ Three things about eToro's API that cost time and are not in its documentation:
 
 An eToro demo account reports a portfolio exactly like a real one, practice cash
 included. Synced without a flag it lands in the combined total — the first demo
-sync here turned 616k NOK into 1.56M.
+sync here turned 410k NOK into 1.4M.
 
 `account.simulated` excludes such an account from every aggregate: the total,
 the live/as-of split, the cost basis and the account count. It stays visible,

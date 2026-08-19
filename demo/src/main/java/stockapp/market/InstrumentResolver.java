@@ -8,10 +8,11 @@ import java.util.Optional;
 /**
  * Turns a line from a broker export into a priceable instrument.
  *
- * <p>Neither DNB nor Nordnet exports an ISIN, so identity has to be recovered
- * from a name or a ticker. Doing that naively is how you end up pricing a DNB
- * Bank holding as Dun &amp; Bradstreet, or a Norwegian fund as its Danish
- * share class in DKK.
+ * <p>Nothing reaches this class with an ISIN - Nordnet's export has none, and
+ * the one DNB layout that does is not plumbed through for it - so identity has
+ * to be recovered from a name or a ticker. Doing that naively is how you end
+ * up pricing a DNB Bank holding as Dun &amp; Bradstreet, or a Norwegian fund
+ * as its Danish share class in DKK.
  *
  * <p>Two things make it safe:
  *
@@ -25,9 +26,9 @@ import java.util.Optional;
  *       is refused and handed to a human.</li>
  * </ol>
  *
- * <p>That second check is what caught AEye in real data: the export said 1,29
- * and the live price was 7,615, a ratio of almost exactly six - an unadjusted
- * reverse split. Auto-accepting it would have silently understated the holding.
+ * <p>That second check is what caught a real mismatch: the export said 2,10
+ * and the live price was 12,60, a ratio of exactly six - an unadjusted reverse
+ * split. Auto-accepting it would have silently understated the holding.
  */
 public final class InstrumentResolver {
 
