@@ -37,9 +37,9 @@ class NordnetParserTest {
     private static byte[] sample() {
         return utf16le(String.join("\n",
                 HEADER,
-                "Kongsberg Gruppen\tNOK\t170\t189,0672\t2,1884498\t336,2\t48580,9\t57154\t57154\t77,82\t25012,5816",
-                "Palantir Technologies\tUSD\t25\t35,8848\t-0,0055863\t179\t29582,58\t4475\t42260,8367172\t343,99\t32742,36",
-                "K33\tSEK\t35260\t0,1447\t2,0242915\t0,0252\t0\t888,552\t882,9274658\t-82,27\t-4096,99"));
+                "Mowi\tNOK\t120\t250,5\t1,1\t300,25\t24000\t36030\t36030\t19,86\t5970",
+                "Example Corp\tUSD\t40\t12,3456\t-0,55\t20,5\t5000\t820\t7749,2367172\t66,05\t3082,36",
+                "Zeta Mining\tSEK\t42000\t0,2\t2,02\t0,0315\t0\t1323\t1284,9274658\t-84,25\t-6900,15"));
     }
 
     private final NordnetParser parser = new NordnetParser();
@@ -54,34 +54,34 @@ class NordnetParserTest {
     void decodesUtf16leAndSplitsOnTabs() {
         ParsedExport export = parser.parse("aksjelister.csv", sample());
         assertEquals(3, export.holdings().size());
-        assertEquals("Kongsberg Gruppen", export.holdings().get(0).name());
-        assertEquals("Palantir Technologies", export.holdings().get(1).name());
+        assertEquals("Mowi", export.holdings().get(0).name());
+        assertEquals("Example Corp", export.holdings().get(1).name());
     }
 
     @Test
     void readsDecimalCommasAsDecimalPoints() {
-        ParsedHolding kog = parser.parse("f.csv", sample()).holdings().get(0);
-        assertEquals(0, kog.quantity().compareTo(new BigDecimal("170")));
-        assertEquals(0, kog.avgCost().compareTo(new BigDecimal("189.0672")));
-        assertEquals(0, kog.lastPrice().compareTo(new BigDecimal("336.2")));
-        assertEquals(0, kog.valueNok().compareTo(new BigDecimal("57154")));
+        ParsedHolding mowi = parser.parse("f.csv", sample()).holdings().get(0);
+        assertEquals(0, mowi.quantity().compareTo(new BigDecimal("120")));
+        assertEquals(0, mowi.avgCost().compareTo(new BigDecimal("250.5")));
+        assertEquals(0, mowi.lastPrice().compareTo(new BigDecimal("300.25")));
+        assertEquals(0, mowi.valueNok().compareTo(new BigDecimal("36030")));
     }
 
     @Test
     void keepsNativeCurrencyAndNokValueApart() {
         // Nordnet does the conversion for us; both numbers matter, and
         // conflating them would silently mis-value every foreign holding.
-        ParsedHolding pltr = parser.parse("f.csv", sample()).holdings().get(1);
-        assertEquals("USD", pltr.currency());
-        assertEquals(0, pltr.valueNative().compareTo(new BigDecimal("4475")));
-        assertEquals(0, pltr.valueNok().compareTo(new BigDecimal("42260.8367172")));
+        ParsedHolding usd = parser.parse("f.csv", sample()).holdings().get(1);
+        assertEquals("USD", usd.currency());
+        assertEquals(0, usd.valueNative().compareTo(new BigDecimal("820")));
+        assertEquals(0, usd.valueNok().compareTo(new BigDecimal("7749.2367172")));
     }
 
     @Test
     void handlesAThirdCurrency() {
-        ParsedHolding k33 = parser.parse("f.csv", sample()).holdings().get(2);
-        assertEquals("SEK", k33.currency());
-        assertEquals(0, k33.quantity().compareTo(new BigDecimal("35260")));
+        ParsedHolding sek = parser.parse("f.csv", sample()).holdings().get(2);
+        assertEquals("SEK", sek.currency());
+        assertEquals(0, sek.quantity().compareTo(new BigDecimal("42000")));
     }
 
     @Test
@@ -93,17 +93,17 @@ class NordnetParserTest {
     @Test
     void totalsAddUp() {
         BigDecimal total = parser.parse("f.csv", sample()).computedTotalNok();
-        assertEquals(0, total.compareTo(new BigDecimal("57154").add(new BigDecimal("42260.8367172"))
-                .add(new BigDecimal("882.9274658"))));
+        assertEquals(0, total.compareTo(new BigDecimal("36030").add(new BigDecimal("7749.2367172"))
+                .add(new BigDecimal("1284.9274658"))));
     }
 
     @Test
     void alsoReadsPlainUtf8ShouldNordnetEverChange() {
         byte[] utf8 = String.join("\n", HEADER,
-                "Equinor\tNOK\t81\t293,2701\t1,88\t384\t24883,2\t31104\t31104\t30,94\t7349,12")
+                "Tomra Systems\tNOK\t60\t180,4\t1,88\t210\t10080\t12600\t12600\t16,41\t1776")
                 .getBytes(StandardCharsets.UTF_8);
         ParsedExport export = parser.parse("f.csv", utf8);
-        assertEquals("Equinor", export.holdings().get(0).name());
+        assertEquals("Tomra Systems", export.holdings().get(0).name());
     }
 
     @Test
@@ -118,7 +118,7 @@ class NordnetParserTest {
     @Test
     void blankLinesAndRowsWithoutANameAreSkipped() {
         byte[] gappy = utf16le(String.join("\n", HEADER,
-                "Equinor\tNOK\t81\t293,2701\t1,88\t384\t24883,2\t31104\t31104\t30,94\t7349,12",
+                "Tomra Systems\tNOK\t60\t180,4\t1,88\t210\t10080\t12600\t12600\t16,41\t1776",
                 "",
                 "\tNOK\t10\t1\t0\t1\t0\t10\t10\t0\t0"));
         assertEquals(1, parser.parse("f.csv", gappy).holdings().size());

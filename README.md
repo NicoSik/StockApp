@@ -54,7 +54,14 @@ Drop in an export and it becomes one combined total:
 |---|---|---|
 | **eToro** | **live API** — no export needed | eToro instrument id |
 | **Nordnet** | *Aksjelister* (`.csv`) | name — no ISIN, no ticker |
-| **DNB** | *Beholdning* (`.xlsx`) | ticker |
+| **DNB** | holdings report (`.xlsx`) | ticker, or name |
+
+DNB emits two different holdings workbooks and both are read: the Norwegian
+one, with an `Aksjer` sheet keyed by ticker and a `Total` sheet to reconcile
+against, and `DNBBeholdning.xlsx`, which has English headers and one sheet per
+asset class. The second carries an ISIN — the one exact identifier any of these
+files offers — but nothing downstream reads it yet, so its rows are matched by
+name like Nordnet's.
 
 eToro is the only one of the three offering a personal API. Add
 `ETORO_API_KEY` and `ETORO_USER_KEY` to `.env` (Settings → Trading → API Key
@@ -69,7 +76,7 @@ in the table rather than shown as though they were ordinary stock.
   NOK rates.
 - **Honest where it doesn't.** Norwegian mutual funds have no free price feed,
   so they carry the value your broker last reported, stamped with its date. The
-  total says so: *"616 578 kr — 99.9% priced live, 577 kr as of 14 Aug"*.
+  total says so: *"412 500 kr — 99.9% priced live, 600 kr as of 14 Aug"*.
 - **Matches are verified, not guessed.** Neither export carries an ISIN, so an
   instrument is resolved from a name or ticker and then checked against the
   price in your own file. A mismatch is refused and handed to you to fix rather

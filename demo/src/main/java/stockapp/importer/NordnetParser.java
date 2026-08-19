@@ -18,7 +18,7 @@ import java.util.Map;
  * <ul>
  *   <li><b>UTF-16LE</b> with a byte-order mark, not UTF-8</li>
  *   <li><b>tab</b>-delimited, not comma-delimited</li>
- *   <li>full of <b>decimal commas</b> ({@code 35,8848}), which is precisely why
+ *   <li>full of <b>decimal commas</b> ({@code 12,3456}), which is precisely why
  *       the delimiter cannot be a comma</li>
  * </ul>
  *
