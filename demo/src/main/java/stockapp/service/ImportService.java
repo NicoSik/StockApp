@@ -1,6 +1,7 @@
 package stockapp.service;
 
 import stockapp.importer.BrokerParser;
+import stockapp.importer.DnbBeholdningParser;
 import stockapp.importer.DnbParser;
 import stockapp.importer.ImportException;
 import stockapp.importer.NordnetParser;
@@ -24,16 +25,18 @@ import java.util.UUID;
  *
  * <p>Always in two steps. A parse produces a <b>preview</b> in which every row
  * carries how it was resolved and how confident that is; nothing is written
- * until the preview is committed. That matters because neither broker supplies
- * an ISIN, so a mapping is an inference, and an inference should be looked at
- * once before it starts feeding a net-worth figure.
+ * until the preview is committed. That matters because identity is recovered
+ * from a name or a ticker - the one export that does carry an ISIN is not read
+ * for it yet - so a mapping is an inference, and an inference should be looked
+ * at once before it starts feeding a net-worth figure.
  *
  * <p>Once a row is committed its broker-specific label is remembered as an
  * alias, so the same holding never has to be reviewed again.
  */
 public final class ImportService {
 
-    private static final List<BrokerParser> PARSERS = List.of(new NordnetParser(), new DnbParser());
+    private static final List<BrokerParser> PARSERS =
+            List.of(new NordnetParser(), new DnbParser(), new DnbBeholdningParser());
     /** A preview is a scratch object; half an hour is more than a person needs. */
     private static final Duration PREVIEW_TTL = Duration.ofMinutes(30);
 
@@ -90,8 +93,8 @@ public final class ImportService {
                 .filter(p -> p.supports(filename, content))
                 .findFirst()
                 .orElseThrow(() -> new ImportException(
-                        "Unrecognised file. Expected a Nordnet holdings export (.csv) or a DNB "
-                                + "\"Beholdning\" report (.xlsx)."));
+                        "Unrecognised file. Expected a Nordnet holdings export (.csv) or one of DNB's "
+                                + "two holdings reports (.xlsx)."));
 
         ParsedExport export = parser.parse(filename, content);
         List<PreviewRow> rows = new ArrayList<>(export.holdings().size());

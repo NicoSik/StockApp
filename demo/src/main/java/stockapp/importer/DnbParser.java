@@ -4,9 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -16,7 +14,7 @@ import java.util.Map;
  * ({@code Ticker | Antall | Verdi | Avkastning}), and <b>Total</b> with a
  * single row of portfolio figures.
  *
- * <p>This is the easier of the two supported formats, because it carries a
+ * <p>This is the easiest format to resolve, because it carries a
  * <b>ticker</b>. All of them are Oslo Børs, so appending {@code .OL} gives a
  * Yahoo symbol directly and none of the name-guessing the Nordnet importer
  * needs applies.
@@ -26,7 +24,11 @@ import java.util.Map;
  * as a whole) and a last price. The price is derived as value / quantity, which
  * is exact and gives the resolver something to verify a symbol against.
  *
- * <p>Do not confuse this with DNB's "Mine ordre" export, which is an order
+ * <p>DNB's other holdings workbook - English headers, one sheet per asset
+ * class, keyed by ISIN - is a different file and is read by
+ * {@link DnbBeholdningParser}.
+ *
+ * <p>Do not confuse either with DNB's "Mine ordre" export, which is an order
  * history for the last twelve months. Positions cannot be reconstructed from
  * it - anything bought earlier simply is not there - so it is rejected.
  */
@@ -66,7 +68,7 @@ public final class DnbParser implements BrokerParser {
             return false;
         }
         try {
-            return findSheet(XlsxReader.read(content), SHEET_HOLDINGS) != null;
+            return XlsxReader.sheet(XlsxReader.read(content), SHEET_HOLDINGS) != null;
         } catch (RuntimeException e) {
             return false;
         }
@@ -76,9 +78,9 @@ public final class DnbParser implements BrokerParser {
     public ParsedExport parse(String filename, byte[] content) {
         Map<String, List<List<String>>> sheets = XlsxReader.read(content);
 
-        List<List<String>> holdingsSheet = findSheet(sheets, SHEET_HOLDINGS);
+        List<List<String>> holdingsSheet = XlsxReader.sheet(sheets, SHEET_HOLDINGS);
         if (holdingsSheet == null) {
-            if (findSheet(sheets, "mine ordre") != null || hasColumn(sheets, "ordreretning")) {
+            if (XlsxReader.sheet(sheets, "mine ordre") != null || hasColumn(sheets, "ordreretning")) {
                 throw new ImportException(
                         "This is DNB's order history, not a holdings report. It only covers the last 12 months, "
                                 + "so it cannot show what you currently own. Export \"Beholdning\" instead.");
@@ -89,7 +91,7 @@ public final class DnbParser implements BrokerParser {
             throw new ImportException("The Aksjer sheet has no holdings.");
         }
 
-        Map<String, Integer> columns = headerIndex(holdingsSheet.get(0));
+        Map<String, Integer> columns = XlsxReader.headerIndex(holdingsSheet.get(0));
         Integer tickerIdx = columns.get(COL_TICKER);
         Integer quantityIdx = columns.get(COL_QUANTITY);
         Integer valueIdx = columns.get(COL_VALUE);
@@ -101,8 +103,8 @@ public final class DnbParser implements BrokerParser {
         for (int r = 1; r < holdingsSheet.size(); r++) {
             List<String> row = holdingsSheet.get(r);
             String ticker = XlsxReader.at(row, tickerIdx);
-            BigDecimal quantity = number(XlsxReader.at(row, quantityIdx));
-            BigDecimal value = number(XlsxReader.at(row, valueIdx));
+            BigDecimal quantity = XlsxReader.number(XlsxReader.at(row, quantityIdx));
+            BigDecimal value = XlsxReader.number(XlsxReader.at(row, valueIdx));
             if (ticker == null || quantity == null || value == null) {
                 continue;
             }
@@ -187,21 +189,12 @@ public final class DnbParser implements BrokerParser {
 
     /** Reads one named column from the single row of the Total sheet. */
     private static BigDecimal readTotalField(Map<String, List<List<String>>> sheets, String column) {
-        List<List<String>> total = findSheet(sheets, SHEET_TOTAL);
+        List<List<String>> total = XlsxReader.sheet(sheets, SHEET_TOTAL);
         if (total == null || total.size() < 2) {
             return null;
         }
-        Integer index = headerIndex(total.get(0)).get(column);
-        return index == null ? null : number(XlsxReader.at(total.get(1), index));
-    }
-
-    private static List<List<String>> findSheet(Map<String, List<List<String>>> sheets, String name) {
-        for (Map.Entry<String, List<List<String>>> entry : sheets.entrySet()) {
-            if (entry.getKey().trim().toLowerCase(Locale.ROOT).equals(name)) {
-                return entry.getValue();
-            }
-        }
-        return null;
+        Integer index = XlsxReader.headerIndex(total.get(0)).get(column);
+        return index == null ? null : XlsxReader.number(XlsxReader.at(total.get(1), index));
     }
 
     private static boolean hasColumn(Map<String, List<List<String>>> sheets, String column) {
@@ -215,32 +208,5 @@ public final class DnbParser implements BrokerParser {
             }
         }
         return false;
-    }
-
-    private static Map<String, Integer> headerIndex(List<String> header) {
-        Map<String, Integer> columns = new HashMap<>();
-        for (int i = 0; i < header.size(); i++) {
-            String cell = header.get(i);
-            if (cell != null && !cell.isBlank()) {
-                columns.put(cell.trim().toLowerCase(Locale.ROOT), i);
-            }
-        }
-        return columns;
-    }
-
-    /** Excel stores numbers with a dot; be tolerant of a comma regardless. */
-    private static BigDecimal number(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String cleaned = raw.trim().replace(" ", "").replace(" ", "").replace(",", ".");
-        if (cleaned.isEmpty()) {
-            return null;
-        }
-        try {
-            return new BigDecimal(cleaned);
-        } catch (NumberFormatException e) {
-            return null;
-        }
     }
 }

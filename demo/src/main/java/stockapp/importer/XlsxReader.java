@@ -11,10 +11,12 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -235,5 +237,43 @@ final class XlsxReader {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /** The named sheet, matched without regard to case or padding; null if absent. */
+    static List<List<String>> sheet(Map<String, List<List<String>>> sheets, String name) {
+        for (Map.Entry<String, List<List<String>>> entry : sheets.entrySet()) {
+            if (entry.getKey().trim().toLowerCase(Locale.ROOT).equals(name)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    /** A header row as lowercased column name to index, so column order is irrelevant. */
+    static Map<String, Integer> headerIndex(List<String> header) {
+        Map<String, Integer> columns = new HashMap<>();
+        for (int i = 0; i < header.size(); i++) {
+            String cell = header.get(i);
+            if (cell != null && !cell.isBlank()) {
+                columns.put(cell.trim().toLowerCase(Locale.ROOT), i);
+            }
+        }
+        return columns;
+    }
+
+    /** Excel stores numbers with a dot; be tolerant of a comma regardless. */
+    static BigDecimal number(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String cleaned = raw.trim().replace(" ", "").replace("\u00a0", "").replace(",", ".");
+        if (cleaned.isEmpty()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(cleaned);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }
