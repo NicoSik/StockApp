@@ -6,13 +6,20 @@ import stockapp.repo.AccountRepo;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -35,10 +42,38 @@ import java.util.stream.Collectors;
  */
 public final class ValuationService {
 
+    /**
+     * How long a price is treated as current. Past this a refresh is started,
+     * but the stale price is still served - see {@link #valueEverything()}.
+     */
+    private static final Duration PRICE_TTL = Duration.ofMinutes(1);
+
     private final AccountRepo accounts;
     private final YahooClient yahoo;
     private final FxService fx;
     private final Cache<String, BigDecimal> priceCache = new Cache<>();
+
+    /**
+     * One thread to run a refresh and a small pool to fetch within it, kept
+     * apart on purpose: a coordinator waiting on tasks in its own pool can
+     * starve them. Both are daemons, so neither holds the JVM open.
+     */
+    private final ExecutorService refreshCoordinator = Executors.newSingleThreadExecutor(daemon("price-refresh"));
+    private final ExecutorService pricePool = Executors.newFixedThreadPool(8, daemon("price-fetch"));
+
+    /** Guards against a dozen page loads starting a dozen refreshes. */
+    private final AtomicBoolean refreshing = new AtomicBoolean(false);
+
+    /** When the last refresh finished, for the "prices from …" label. */
+    private volatile Instant pricesAsOf;
+
+    private static java.util.concurrent.ThreadFactory daemon(String name) {
+        return runnable -> {
+            Thread thread = new Thread(runnable, name);
+            thread.setDaemon(true);
+            return thread;
+        };
+    }
 
     public ValuationService(AccountRepo accounts, YahooClient yahoo, FxService fx) {
         this.accounts = accounts;
@@ -96,6 +131,10 @@ public final class ValuationService {
      * @param totalNok     real money only; simulated accounts are excluded
      * @param simulatedNok practice money, reported separately so it can be shown
      *                     without ever being added to a net worth
+     * @param pricesRefreshing a refresh is running now, so these figures are
+     *                         the previous ones and a later call will differ
+     * @param pricesAsOf   when the served prices were fetched, null before the
+     *                     first refresh has finished
      */
     public record Totals(BigDecimal totalNok,
                          BigDecimal liveNok,
@@ -109,11 +148,23 @@ public final class ValuationService {
                          int holdingCount,
                          List<AccountValuation> accounts,
                          List<ValuedHolding> holdings,
-                         Map<String, BigDecimal> fxRates) {
+                         Map<String, BigDecimal> fxRates,
+                         boolean pricesRefreshing,
+                         Instant pricesAsOf) {
     }
 
-    /** Values every account against its most recent snapshot. */
+    /**
+     * Values every account against its most recent snapshot.
+     *
+     * <p>This never waits on the network. Prices come from the cache whatever
+     * their age, and anything past its time-to-live is queued for a background
+     * refresh that a later call will pick up. Fetching 38 symbols one at a time
+     * took three and a half seconds, which was paid on every visit where the
+     * cache had gone cold - so the page was fast only if you had just seen it.
+     */
     public Totals valueEverything() {
+        // Symbols whose cached price is missing or past its TTL.
+        Set<String> stalePrices = new LinkedHashSet<>();
         List<AccountValuation> valued = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
         BigDecimal live = BigDecimal.ZERO;
@@ -140,7 +191,7 @@ public final class ValuationService {
             BigDecimal accountMeasured = BigDecimal.ZERO;
 
             for (AccountRepo.StoredHolding stored : accounts.holdings(latest.id())) {
-                ValuedHolding holding = value(stored, account.name());
+                ValuedHolding holding = value(stored, account.name(), stalePrices);
                 holdings.add(holding);
                 accountTotal = accountTotal.add(holding.valueNok());
                 if (holding.costBasisNok() != null) {
@@ -218,6 +269,10 @@ public final class ValuationService {
         // cost basis at all would otherwise report its entire value as profit.
         BigDecimal gain = measured.signum() == 0 ? null : money(measured.subtract(costBasis));
 
+        // Start the refresh only once the response is fully built, so nothing
+        // above it can ever be waiting on a network call.
+        boolean refreshStarted = startRefresh(stalePrices);
+
         return new Totals(
                 grandTotal,
                 liveNok,
@@ -231,7 +286,60 @@ public final class ValuationService {
                 weighted.size(),
                 weightedAccounts,
                 weighted,
-                fx.latestRates());
+                fx.latestRates(),
+                refreshStarted || refreshing.get(),
+                pricesAsOf);
+    }
+
+    /**
+     * Fetches the given symbols in the background, in parallel.
+     *
+     * @return true if this call started a refresh, false if nothing needed one
+     *         or one was already running
+     *
+     * <p>Parallel because sequential was the whole problem: 38 symbols at
+     * roughly 90ms each is three and a half seconds. Fetching them at once
+     * turns that into about the slowest single request, and since it no longer
+     * blocks a response, its only cost is arriving slightly later.
+     *
+     * <p>A failed symbol is simply not written, so the previous price stays and
+     * the next pass tries again. There is no retry here on purpose - a refresh
+     * runs often enough that retrying inside one only doubles the load on an
+     * upstream that is already unhappy.
+     */
+    private boolean startRefresh(Set<String> symbols) {
+        if (symbols.isEmpty() || !refreshing.compareAndSet(false, true)) {
+            return false;
+        }
+        List<String> wanted = List.copyOf(symbols);
+        refreshCoordinator.submit(() -> {
+            try {
+                List<Future<?>> pending = new ArrayList<>(wanted.size());
+                for (String symbol : wanted) {
+                    pending.add(pricePool.submit(() -> {
+                        BigDecimal fetched = yahoo.quote(symbol)
+                                .map(quote -> BigDecimal.valueOf(quote.price()))
+                                .orElse(null);
+                        if (fetched != null) {
+                            priceCache.put(symbol, fetched, PRICE_TTL);
+                        }
+                    }));
+                }
+                for (Future<?> task : pending) {
+                    try {
+                        task.get();
+                    } catch (Exception e) {
+                        // One symbol failing must not abandon the rest.
+                    }
+                }
+                pricesAsOf = Instant.now();
+            } finally {
+                // Without this a single thrown exception would wedge the flag
+                // and no refresh would ever run again.
+                refreshing.set(false);
+            }
+        });
+        return true;
     }
 
     /** The same holding with its share of the portfolio filled in. */
@@ -247,15 +355,22 @@ public final class ValuationService {
      * Values one holding, preferring a live price and falling back to the
      * value stored at import.
      */
-    private ValuedHolding value(AccountRepo.StoredHolding stored, String accountName) {
+    private ValuedHolding value(AccountRepo.StoredHolding stored, String accountName,
+                                Set<String> stalePrices) {
         BigDecimal valueNok = stored.valueNok();
         BigDecimal price = null;
         boolean live = false;
-
         // Only price instruments whose mapping was actually confirmed. An
         // unverified guess must not be allowed to move a real number.
         if ("YAHOO".equals(stored.priceSource()) && stored.symbol() != null && stored.verified()) {
-            BigDecimal livePrice = priceOf(stored.symbol());
+            // Fresh or not, whatever is cached is what gets served; a price a
+            // few minutes old is a far better answer than a spinner. Anything
+            // past its TTL is noted so a refresh can be started afterwards.
+            BigDecimal livePrice = priceCache.peek(stored.symbol());
+            if (livePrice == null) {
+                stalePrices.add(stored.symbol());
+                livePrice = priceCache.peekStale(stored.symbol());
+            }
             if (livePrice != null) {
                 BigDecimal nokPrice = fx.toNok(livePrice, stored.currency());
                 if (nokPrice != null) {
@@ -288,20 +403,6 @@ public final class ValuationService {
                 accountName,
                 stored.leverage(),
                 stored.direction());
-    }
-
-    /**
-     * A live price, cached for a minute.
-     *
-     * <p>A portfolio of forty holdings refreshed on every page view would be
-     * forty requests to an unofficial endpoint; the cache keeps that to forty
-     * per minute at worst, and usually zero.
-     */
-    private BigDecimal priceOf(String symbol) {
-        return priceCache.get(symbol, Duration.ofMinutes(1), key ->
-                yahoo.quote(key)
-                        .map(quote -> BigDecimal.valueOf(quote.price()))
-                        .orElse(null));
     }
 
     /** Combined value per snapshot date, for a history chart. */
