@@ -13,8 +13,14 @@ import okhttp3.ResponseBody;
 import stockapp.Config;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -197,6 +203,15 @@ public final class EtoroClient {
                             // A numeric category, not a description.
                             (int) optLong(row, "instrumentTypeID")));
                 }
+            } catch (EtoroStalledException e) {
+                // Do not try the next batch. eToro's throttling is a silent stall
+                // keyed to the account, and it deepens the more it is poked, so a
+                // loop that carries on "just to try" costs a full read timeout per
+                // batch and makes the block worse for every later call. Names are
+                // cosmetic - abandoning them is much cheaper than that.
+                System.out.println("[etoro] instrument lookup stalled; abandoning the remaining "
+                        + (wanted.size() - from) + " id(s) rather than making it worse.");
+                break;
             } catch (EtoroException e) {
                 // Names are cosmetic; a failure here must not lose the holdings.
                 System.out.println("[etoro] instrument lookup failed: " + e.getMessage());
@@ -229,13 +244,39 @@ public final class EtoroClient {
         return rows;
     }
 
-    /** The raw response, for diagnosing a shape this client does not expect. */
+    /**
+     * The raw response, for diagnosing a shape this client does not expect.
+     *
+     * <p>Every capture is also written to {@code logs/etoro/}. That is not
+     * incidental: a sample of the real account's {@code /pnl} response was once
+     * seen only in a browser and lost when eToro started throttling, and mapping
+     * the endpoint has been blocked on getting another one ever since. Under
+     * throttling a successful response can be a once-an-hour event, so it is
+     * saved the moment it arrives rather than trusted to a scrollback buffer.
+     */
     public String raw(String path) {
         HttpUrl url = HttpUrl.parse(BASE_URL + (path.startsWith("/") ? path : "/" + path));
         if (url == null) {
             throw new EtoroException("Not a valid eToro API path: " + path);
         }
-        return execute(url);
+        String text = execute(url);
+        save(path, text);
+        return text;
+    }
+
+    /** Writes a capture aside. Failing to save must never fail the request. */
+    private static void save(String path, String text) {
+        try {
+            Path dir = Path.of("logs", "etoro");
+            Files.createDirectories(dir);
+            String slug = path.replaceAll("^/+", "").replaceAll("[^A-Za-z0-9._-]+", "-");
+            String stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+            Path file = dir.resolve(stamp + "-" + slug + ".json");
+            Files.writeString(file, text, StandardCharsets.UTF_8);
+            System.out.println("[etoro] captured " + text.length() + " chars to " + file);
+        } catch (IOException | RuntimeException e) {
+            System.out.println("[etoro] could not save the capture: " + e);
+        }
     }
 
     // ------------------------------------------------------------------- http
@@ -285,6 +326,27 @@ public final class EtoroClient {
                 throw new EtoroException("eToro returned HTTP " + response.code() + ": " + truncate(text));
             }
             return text;
+        } catch (InterruptedIOException e) {
+            // A timeout here reads like a network fault and is almost never one:
+            // an unreachable host answers in milliseconds, and so does a rejected
+            // key. Measured against the live API, a request carrying this
+            // account's x-user-key stalls while an otherwise identical one
+            // without it gets an instant 401 - so the stall is eToro declining to
+            // serve the account, not the network, and not something a different
+            // API key would fix.
+            //
+            // No probe is fired to confirm that. Anything sent to check would
+            // carry the same user-key, and the stall was seen to spread across
+            // endpoints as more requests were made. The one useful action here is
+            // to stop, so this must not itself make a request.
+            throw new EtoroStalledException(
+                    "eToro accepted the connection for " + url.encodedPath() + " and sent nothing back "
+                            + "within " + http.readTimeoutMillis() / 1000 + "s. That is how it signals "
+                            + "throttling - it does not return 429 - and it is tied to the account, not "
+                            + "to the API key, so regenerating the key will not clear it and retrying "
+                            + "makes it worse. Stop calling eToro for a few hours, then try one single "
+                            + "request. If a request without the keys still gets a fast 401, the network "
+                            + "is fine and this is only about waiting.", e);
         } catch (IOException e) {
             throw new EtoroException("Could not reach eToro: " + e.getMessage(), e);
         }
