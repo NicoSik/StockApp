@@ -6,23 +6,7 @@ price charts, and a paper portfolio that never touches a broker.
 Java 17 · Javalin 7 · PostgreSQL · Alpaca market data · a vanilla-JS front end
 with no build step.
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Ticker    Portfolio      [ Search  Ctrl-K ]  ● Market open  │
-├───────────────┬──────────────────────────────────────────────┤
-│ AAPL   ╱╲__   │  Apple Inc. Common Stock          NASDAQ     │
-│ $302.20 -0.9% │  AAPL                                        │
-│               │                                              │
-│ MSFT   __╱─   │  $302.20                                     │
-│ $511.02 +0.4% │  ▼ -$2.69 (-0.88%)  Today                    │
-│               │                                              │
-│ NVDA   ╲__╱   │      ╱╲                                      │
-│ $184.50 +1.2% │   ╱─╯  ╲___╱╲                                │
-│               │  ╯          ╰──╲___                          │
-│ ...           │  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  prev close             │
-│               │   1D  1W  1M  3M  1Y  5Y                     │
-└───────────────┴──────────────────────────────────────────────┘
-```
+![The Ticker watchlist and stock detail view](docs/screenshots/ticker.png)
 
 ## What it does
 
@@ -44,6 +28,12 @@ with no build step.
 Everything is local. No order ever reaches a broker.
 
 ## Holdings — your real brokers, in one NOK total
+
+
+![The Holdings view, combining several brokers into one NOK total](docs/screenshots/holdings.png)
+
+*Both screenshots use invented holdings — the figures are not anyone's real
+portfolio. Market prices in them are genuine.*
 
 Separate from the paper portfolio, and deliberately so: mixing simulated money
 into a real net-worth figure is not something to do by accident.
