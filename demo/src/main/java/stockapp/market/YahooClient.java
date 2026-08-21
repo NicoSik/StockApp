@@ -51,7 +51,13 @@ public final class YahooClient {
     }
 
     /** A live price in the instrument's own currency. */
-    public record Quote(String symbol, double price, String currency, String name, long asOf) {
+    /**
+     * @param previousClose the prior session's close, for a day's change. Null
+     *                      when the feed omits it, which is not the same as a
+     *                      day that moved nothing.
+     */
+    public record Quote(String symbol, double price, String currency, String name, long asOf,
+                        Double previousClose) {
     }
 
     /** One candidate from a symbol search. */
@@ -97,7 +103,9 @@ public final class YahooClient {
                 optString(meta, "longName", optString(meta, "shortName", "")),
                 (long) (optDouble(meta, "regularMarketTime") == null
                         ? System.currentTimeMillis()
-                        : optDouble(meta, "regularMarketTime") * 1000)));
+                        : optDouble(meta, "regularMarketTime") * 1000),
+                // Yahoo names it chartPreviousClose on this endpoint.
+                optDouble(meta, "chartPreviousClose")));
     }
 
     // ----------------------------------------------------------------- search

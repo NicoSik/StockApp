@@ -51,7 +51,7 @@ public final class ValuationService {
     private final AccountRepo accounts;
     private final YahooClient yahoo;
     private final FxService fx;
-    private final Cache<String, BigDecimal> priceCache = new Cache<>();
+    private final Cache<String, YahooClient.Quote> priceCache = new Cache<>();
 
     /**
      * One thread to run a refresh and a small pool to fetch within it, kept
@@ -82,6 +82,10 @@ public final class ValuationService {
     }
 
     /**
+     * @param dayChangeNok what this holding has made or lost today, in NOK.
+     *                     Null wherever there is no live price to compare a
+     *                     previous close against - a broker-supplied value has
+     *                     no intraday history behind it.
      * @param leverage  above 1 for a CFD, null for an ordinary holding
      * @param direction LONG or SHORT where the distinction exists
      */
@@ -97,6 +101,8 @@ public final class ValuationService {
                                 BigDecimal gainNok,
                                 BigDecimal gainPercent,
                                 BigDecimal weight,
+                                BigDecimal dayChangeNok,
+                                BigDecimal dayChangePercent,
                                 boolean live,
                                 String accountName,
                                 BigDecimal leverage,
@@ -122,6 +128,7 @@ public final class ValuationService {
                                    BigDecimal gainNok,
                                    BigDecimal gainPercent,
                                    boolean costBasisReported,
+                                   BigDecimal dayChangeNok,
                                    int holdingCount,
                                    boolean simulated,
                                    List<ValuedHolding> holdings) {
@@ -149,6 +156,8 @@ public final class ValuationService {
                          List<AccountValuation> accounts,
                          List<ValuedHolding> holdings,
                          Map<String, BigDecimal> fxRates,
+                         BigDecimal dayChangeNok,
+                         BigDecimal dayChangeBaseNok,
                          boolean pricesRefreshing,
                          Instant pricesAsOf) {
     }
@@ -171,13 +180,17 @@ public final class ValuationService {
         BigDecimal costBasis = BigDecimal.ZERO;
         BigDecimal measured = BigDecimal.ZERO;
         BigDecimal simulated = BigDecimal.ZERO;
+        // Today's move, and the value it was measured over - the two must be
+        // reported together or a percentage is against the wrong denominator.
+        BigDecimal dayChange = BigDecimal.ZERO;
+        BigDecimal dayChangeBase = BigDecimal.ZERO;
         LocalDate oldest = null;
 
         for (AccountRepo.Account account : accounts.listAccounts()) {
             Optional<AccountRepo.Snapshot> snapshot = accounts.latestSnapshot(account.id());
             if (snapshot.isEmpty()) {
                 valued.add(new AccountValuation(account.id(), account.name(), account.broker(),
-                        null, BigDecimal.ZERO, null, null, null, false, 0, account.simulated(), List.of()));
+                        null, BigDecimal.ZERO, null, null, null, false, null, 0, account.simulated(), List.of()));
                 continue;
             }
 
@@ -189,6 +202,9 @@ public final class ValuationService {
             // this, never against the account total, so a holding with no cost
             // basis cannot masquerade as pure profit.
             BigDecimal accountMeasured = BigDecimal.ZERO;
+            // Only the rows that actually have a previous close contribute; the
+            // rest are absent from both sides rather than counted as flat.
+            BigDecimal accountDayChange = null;
 
             for (AccountRepo.StoredHolding stored : accounts.holdings(latest.id())) {
                 ValuedHolding holding = value(stored, account.name(), stalePrices);
@@ -203,6 +219,14 @@ public final class ValuationService {
                 // live/as-of percentages would still be computed against it.
                 if (!account.simulated() && holding.live()) {
                     live = live.add(holding.valueNok());
+                }
+                if (holding.dayChangeNok() != null) {
+                    accountDayChange = (accountDayChange == null ? BigDecimal.ZERO : accountDayChange)
+                            .add(holding.dayChangeNok());
+                    if (!account.simulated()) {
+                        dayChange = dayChange.add(holding.dayChangeNok());
+                        dayChangeBase = dayChangeBase.add(holding.valueNok());
+                    }
                 }
             }
 
@@ -234,7 +258,7 @@ public final class ValuationService {
                     accountGain == null ? null : money(accountCost),
                     accountGain,
                     accountGain == null ? null : percent(accountGain, accountCost),
-                    reported, holdings.size(), account.simulated(), holdings));
+                    reported, accountDayChange, holdings.size(), account.simulated(), holdings));
         }
 
         // Weights need the grand total, so they are filled in afterwards - and
@@ -253,8 +277,8 @@ public final class ValuationService {
             }
             weightedAccounts.add(new AccountValuation(account.id(), account.name(), account.broker(),
                     account.asOf(), account.valueNok(), account.costBasisNok(), account.gainNok(),
-                    account.gainPercent(), account.costBasisReported(), account.holdingCount(),
-                    account.simulated(), holdings));
+                    account.gainPercent(), account.costBasisReported(), account.dayChangeNok(),
+                    account.holdingCount(), account.simulated(), holdings));
         }
 
         // The combined table stays real money only, exactly as before.
@@ -287,6 +311,8 @@ public final class ValuationService {
                 weightedAccounts,
                 weighted,
                 fx.latestRates(),
+                dayChangeBase.signum() == 0 ? null : money(dayChange),
+                dayChangeBase.signum() == 0 ? null : money(dayChangeBase),
                 refreshStarted || refreshing.get(),
                 pricesAsOf);
     }
@@ -317,9 +343,7 @@ public final class ValuationService {
                 List<Future<?>> pending = new ArrayList<>(wanted.size());
                 for (String symbol : wanted) {
                     pending.add(pricePool.submit(() -> {
-                        BigDecimal fetched = yahoo.quote(symbol)
-                                .map(quote -> BigDecimal.valueOf(quote.price()))
-                                .orElse(null);
+                        YahooClient.Quote fetched = yahoo.quote(symbol).orElse(null);
                         if (fetched != null) {
                             priceCache.put(symbol, fetched, PRICE_TTL);
                         }
@@ -347,7 +371,8 @@ public final class ValuationService {
         return new ValuedHolding(holding.symbol(), holding.name(), holding.kind(), holding.currency(),
                 holding.quantity(), holding.avgCost(), holding.price(), holding.valueNok(),
                 holding.costBasisNok(), holding.gainNok(), holding.gainPercent(),
-                weight, holding.live(), holding.accountName(),
+                weight, holding.dayChangeNok(), holding.dayChangePercent(),
+                holding.live(), holding.accountName(),
                 holding.leverage(), holding.direction());
     }
 
@@ -359,6 +384,8 @@ public final class ValuationService {
                                 Set<String> stalePrices) {
         BigDecimal valueNok = stored.valueNok();
         BigDecimal price = null;
+        BigDecimal dayChange = null;
+        BigDecimal dayChangePercent = null;
         boolean live = false;
         // Only price instruments whose mapping was actually confirmed. An
         // unverified guess must not be allowed to move a real number.
@@ -366,17 +393,31 @@ public final class ValuationService {
             // Fresh or not, whatever is cached is what gets served; a price a
             // few minutes old is a far better answer than a spinner. Anything
             // past its TTL is noted so a refresh can be started afterwards.
-            BigDecimal livePrice = priceCache.peek(stored.symbol());
-            if (livePrice == null) {
+            YahooClient.Quote quote = priceCache.peek(stored.symbol());
+            if (quote == null) {
                 stalePrices.add(stored.symbol());
-                livePrice = priceCache.peekStale(stored.symbol());
+                quote = priceCache.peekStale(stored.symbol());
             }
-            if (livePrice != null) {
+            if (quote != null) {
+                BigDecimal livePrice = BigDecimal.valueOf(quote.price());
                 BigDecimal nokPrice = fx.toNok(livePrice, stored.currency());
                 if (nokPrice != null) {
                     price = livePrice;
                     valueNok = money(nokPrice.multiply(stored.quantity()));
                     live = true;
+
+                    // Today's move, but only where the feed actually supplies a
+                    // previous close. A missing one is left null rather than
+                    // treated as no movement, which would read as a flat day.
+                    if (quote.previousClose() != null && quote.previousClose() > 0) {
+                        BigDecimal previous = fx.toNok(
+                                BigDecimal.valueOf(quote.previousClose()), stored.currency());
+                        if (previous != null) {
+                            BigDecimal was = money(previous.multiply(stored.quantity()));
+                            dayChange = money(valueNok.subtract(was));
+                            dayChangePercent = percent(dayChange, was);
+                        }
+                    }
                 }
             }
         }
@@ -399,6 +440,8 @@ public final class ValuationService {
                 gain,
                 gain == null ? null : percent(gain, costBasis),
                 BigDecimal.ZERO,
+                dayChange,
+                dayChangePercent,
                 live,
                 accountName,
                 stored.leverage(),
