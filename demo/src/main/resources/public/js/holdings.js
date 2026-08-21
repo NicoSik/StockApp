@@ -74,6 +74,7 @@ export async function renderHoldingsView(main) {
 
     currentHoldings = data.holdings ?? [];
     holdingsByAccount = new Map((data.accounts ?? []).map((a) => [a.name, a.holdings ?? []]));
+    accountsByName = new Map((data.accounts ?? []).map((a) => [a.name, a]));
     // A refresh or a re-import should not silently dump you back to the
     // combined view, but an account that has since gone away cannot be shown.
     if (activeAccount !== null && !holdingsByAccount.has(activeAccount)) {
@@ -99,12 +100,7 @@ function markup(data, history, etoro) {
         <p class="hero__eyebrow">Across your brokers</p>
         <h1 class="hero__symbol" id="holdings-heading">Holdings</h1>
         <p class="hero__price" id="h-total">${kr(data.totalNok)}</p>
-        <p class="hero__change" id="h-change">
-            ${data.gainNok !== null && data.gainNok !== undefined
-                ? `<span class="${gainDir}">${fmt.arrow(data.gainNok)} ${kr(data.gainNok)}</span>
-                   <span class="hero__change-label" id="h-total-label">where cost basis is known</span>`
-                : '<span class="hero__change-label" id="h-total-label">Combined value in NOK</span>'}
-        </p>
+        <p class="hero__change" id="h-change">${heroChange(data)}</p>
 
         <div id="h-freshness">${empty ? '' : freshnessBanner(data)}</div>
 
@@ -163,19 +159,92 @@ function markup(data, history, etoro) {
 }
 
 /**
- * Says plainly how much of the total is live and how much is carried from the
- * last import, and when that was.
+ * Today's move first, then the total gain.
+ *
+ * <p>Both are labelled with what they cover. Today's figure can only be
+ * measured where there is a live price and a previous close to compare it
+ * against, so on a portfolio that is part broker-valued it spans less than the
+ * whole - and an unlabelled number would be read as the whole.
+ */
+function heroChange(data) {
+    const parts = [];
+
+    if (data.dayChangeNok !== null && data.dayChangeNok !== undefined) {
+        const dir = fmt.direction(data.dayChangeNok);
+        const base = Number(data.dayChangeBaseNok) || 0;
+        const share = Number(data.totalNok) > 0 ? (100 * base) / Number(data.totalNok) : 0;
+        const pct = base > 0 ? (100 * Number(data.dayChangeNok)) / base : null;
+        parts.push(`<span class="${dir}">${fmt.arrow(data.dayChangeNok)} ${kr(data.dayChangeNok)}${
+            pct === null ? '' : ` (${fmt.signedPercent(pct)})`}</span>
+            <span class="hero__change-label">today${
+                share < 99.5 ? ` · across the ${share.toFixed(0)}% priced live` : ''}</span>`);
+    }
+
+    if (data.gainNok !== null && data.gainNok !== undefined) {
+        const dir = fmt.direction(data.gainNok);
+        parts.push(`<span class="${dir}">${fmt.arrow(data.gainNok)} ${kr(data.gainNok)}</span>
+            <span class="hero__change-label" id="h-total-label">where cost basis is known</span>`);
+    }
+
+    if (!parts.length) {
+        return '<span class="hero__change-label" id="h-total-label">Combined value in NOK</span>';
+    }
+    // Keep #h-total-label present for the refresh indicator to attach to.
+    return parts.join('<span class="hero__change-label"> · </span>');
+}
+
+/**
+ * Says how much of the total is live and, for the rest, when each broker
+ * actually valued it.
+ *
+ * <p>The old wording dated everything to `oldestAsOf`, the earliest date across
+ * all accounts. Once eToro synced, 99% of the not-live money was hours old and
+ * was still being labelled with a week-old Nordnet import date. One date cannot
+ * describe several accounts, so each is named with its own.
  */
 function freshnessBanner(data) {
     const live = Number(data.livePercent) || 0;
     if (live >= 99.95) {
         return '<p class="note" style="margin-top:var(--space-3)">Everything priced live.</p>';
     }
+    // Which accounts the not-live money actually belongs to, newest first.
+    const sources = (data.accounts ?? [])
+        .filter((a) => !a.simulated)
+        .map((a) => ({
+            name: a.name,
+            asOf: a.asOf,
+            value: (a.holdings ?? []).filter((h) => !h.live)
+                .reduce((sum, h) => sum + (Number(h.valueNok) || 0), 0),
+        }))
+        .filter((a) => a.value > 0)
+        .sort((a, b) => b.value - a.value);
+
+    const detail = sources.length
+        ? sources.map((a) => `${escapeHtml(a.name)} ${describeAsOf(a.asOf)}`).join(', ')
+        : '';
+
     return `<p class="banner" style="margin-top:var(--space-4)">
-        <span>${live.toFixed(0)}% priced live · ${kr(data.asOfNok)} carried from your last import${
-            data.oldestAsOf ? ` (${escapeHtml(data.oldestAsOf)})` : ''
-        }. Anything without a verified match keeps the value your broker reported.</span>
+        <span>${live.toFixed(0)}% priced live · ${kr(data.asOfNok)} valued by the broker itself${
+            detail ? ` — ${detail}` : ''
+        }. Those are the values your broker reported, not a live quote.</span>
     </p>`;
+}
+
+/** The date the named account was last valued, for a row-level label. */
+function accountAsOf(accountName) {
+    return accountsByName.get(accountName)?.asOf ?? null;
+}
+
+/** "today", "yesterday", or the date - a date alone reads as staler than it is. */
+function describeAsOf(isoDate) {
+    if (!isoDate) return 'date unknown';
+    const then = new Date(`${isoDate}T00:00:00`);
+    const today = new Date();
+    const days = Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()) - then) / 86400000);
+    if (days <= 0) return 'today';
+    if (days === 1) return 'yesterday';
+    if (days < 7) return `${days} days ago`;
+    return escapeHtml(isoDate);
 }
 
 /**
@@ -216,6 +285,9 @@ function accountCard(account) {
         <p class="summary__label">${escapeHtml(account.name)}
             ${account.simulated ? '<span class="side-chip" data-side="SELL">not real</span>' : ''}</p>
         <p class="summary__value">${kr(account.valueNok)}</p>
+        ${account.dayChangeNok !== null && account.dayChangeNok !== undefined
+            ? `<p class="note ${fmt.direction(account.dayChangeNok)}">${fmt.arrow(account.dayChangeNok)} ${
+                kr(account.dayChangeNok)} today</p>` : ''}
         ${hasGain ? `<p class="note ${fmt.direction(account.gainNok)}">${
             fmt.arrow(account.gainNok)} ${kr(account.gainNok)} (${
             fmt.signedPercent(account.gainPercent)})${gainNote}</p>` : ''}
@@ -241,6 +313,7 @@ const SORT_COLUMNS = [
     { key: 'quantity', label: 'Quantity', numeric: true },
     { key: 'price', label: 'Price', numeric: true },
     { key: 'valueNok', label: 'Value', numeric: true },
+    { key: 'dayChangeNok', label: 'Today', numeric: true },
     { key: 'gainNok', label: 'Gain', numeric: true },
     { key: 'weight', label: 'Weight', numeric: true },
     { key: 'live', label: 'Priced', numeric: false },
@@ -263,6 +336,8 @@ let activeAccount = null;
  * empty table, because its holdings are deliberately absent from the total.
  */
 let holdingsByAccount = new Map();
+/** Account name -> the account itself, so a row can name its own as-of date. */
+let accountsByName = new Map();
 
 /** The rows the table should show, before sorting. */
 function visibleHoldings() {
@@ -394,12 +469,17 @@ function holdingRow(holding) {
         <td class="num">${holding.price !== null && holding.price !== undefined
             ? `${Number(holding.price).toFixed(2)} ${escapeHtml(holding.currency || '')}` : fmt.EMPTY}</td>
         <td class="num">${kr(holding.valueNok, true)}</td>
+        <td class="num ${fmt.direction(holding.dayChangeNok)}">${
+            holding.dayChangeNok !== null && holding.dayChangeNok !== undefined
+                ? `${kr(holding.dayChangeNok)} (${fmt.signedPercent(holding.dayChangePercent)})`
+                : fmt.EMPTY}</td>
         <td class="num ${gainDir}">${holding.gainNok !== null && holding.gainNok !== undefined
             ? `${kr(holding.gainNok)} (${fmt.signedPercent(holding.gainPercent)})` : fmt.EMPTY}</td>
         <td class="num">${fmt.percent(holding.weight)}</td>
         <td>${holding.live
             ? '<span class="side-chip" data-side="BUY">live</span>'
-            : '<span class="side-chip" data-side="SELL">as of import</span>'}</td>
+            : `<span class="side-chip" data-side="SELL">as of ${
+                escapeHtml(describeAsOf(accountAsOf(holding.accountName)))}</span>`}</td>
     </tr>`;
 }
 
@@ -582,6 +662,7 @@ function schedulePriceRefresh(data) {
 function applyPriceUpdate(data) {
     currentHoldings = data.holdings ?? [];
     holdingsByAccount = new Map((data.accounts ?? []).map((a) => [a.name, a.holdings ?? []]));
+    accountsByName = new Map((data.accounts ?? []).map((a) => [a.name, a]));
     if (activeAccount !== null && !holdingsByAccount.has(activeAccount)) {
         activeAccount = null;
     }
@@ -590,13 +671,7 @@ function applyPriceUpdate(data) {
     if (total) total.textContent = kr(data.totalNok);
 
     const change = qs('#h-change');
-    if (change) {
-        const dir = fmt.direction(data.gainNok);
-        setHtml(change, data.gainNok !== null && data.gainNok !== undefined
-            ? `<span class="${dir}">${fmt.arrow(data.gainNok)} ${kr(data.gainNok)}</span>
-               <span class="hero__change-label" id="h-total-label">where cost basis is known</span>`
-            : '<span class="hero__change-label" id="h-total-label">Combined value in NOK</span>');
-    }
+    if (change) setHtml(change, heroChange(data));
 
     const freshness = qs('#h-freshness');
     if (freshness) setHtml(freshness, freshnessBanner(data));
