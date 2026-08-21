@@ -264,14 +264,46 @@ public final class AccountRepo {
         return holdings;
     }
 
-    /** Snapshot totals per date, for the combined value-over-time series. */
+    /**
+     * Combined value per date, for the value-over-time chart.
+     *
+     * <p>Each point sums every account's most recent snapshot <em>on or before</em>
+     * that date, rather than only the snapshots written on it. Grouping by date
+     * alone plotted whichever accounts happened to be imported that day: a day
+     * when only DNB was re-imported showed DNB's value as the whole portfolio,
+     * and the first eToro sync made the line fall from six figures to five while
+     * the money it omitted was still sitting there. Every account a person still
+     * holds is carried forward until it is imported again.
+     *
+     * <p>Simulated accounts are excluded here as everywhere else - practice
+     * money has no business in a net-worth history.
+     *
+     * <p>These are the values the brokers reported at import, not live prices,
+     * so the last point is a snapshot total and will not exactly equal today's
+     * live headline figure.
+     */
     public List<Object[]> valueHistory() {
         String sql = """
-                SELECT s.as_of, sum(h.value_nok) AS total
-                  FROM snapshot s
-                  JOIN holding h ON h.snapshot_id = s.id
-                 GROUP BY s.as_of
-                 ORDER BY s.as_of
+                WITH snapshot_value AS (
+                    SELECT s.id, s.account_id, s.as_of, COALESCE(sum(h.value_nok), 0) AS value
+                      FROM snapshot s
+                      JOIN account a ON a.id = s.account_id AND a.simulated = false
+                      LEFT JOIN holding h ON h.snapshot_id = s.id
+                     GROUP BY s.id, s.account_id, s.as_of
+                ),
+                points AS (SELECT DISTINCT as_of FROM snapshot_value),
+                carried AS (
+                    SELECT p.as_of AS point_date, sv.value,
+                           row_number() OVER (PARTITION BY p.as_of, sv.account_id
+                                              ORDER BY sv.as_of DESC, sv.id DESC) AS rn
+                      FROM points p
+                      JOIN snapshot_value sv ON sv.as_of <= p.as_of
+                )
+                SELECT point_date AS as_of, sum(value) AS total
+                  FROM carried
+                 WHERE rn = 1
+                 GROUP BY point_date
+                 ORDER BY point_date
                 """;
         List<Object[]> points = new ArrayList<>();
         try (Connection conn = db.connection();

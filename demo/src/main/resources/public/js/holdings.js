@@ -129,6 +129,12 @@ function markup(data, history, etoro) {
                     ${history.points?.length > 1 ? '' : 'Your value chart builds up as you import over time — one point per import.'}
                 </div>
             </div>
+            ${history.points?.length > 1 ? `
+                <p class="note" style="margin-top:var(--space-2)">
+                    One point per import, at the value your broker reported that day — so the
+                    latest point will not match the live figure above exactly.
+                </p>` : ''}
+
 
             <div class="summary" id="h-accounts">
                 ${data.accounts.filter(a => a.holdingCount > 0).map(accountCard).join('')}
