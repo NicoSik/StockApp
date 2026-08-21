@@ -15,6 +15,7 @@ import stockapp.Config;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -108,6 +109,21 @@ public final class EtoroClient {
      * environment with its own key.
      */
     public Portfolio portfolio(boolean demo) {
+        try {
+            return aggregatePortfolio(demo);
+        } catch (EtoroException e) {
+            if (e.status() != 404) {
+                throw e;
+            }
+            // Not every account has this endpoint: eToro answers 404 rather than
+            // an empty portfolio. /pnl is the one that does answer, so a 404 here
+            // is a routing fact, not an error worth showing anyone.
+            System.out.println("[etoro] aggregate-portfolio is not available on this account; using /pnl");
+            return pnlPortfolio(demo);
+        }
+    }
+
+    private Portfolio aggregatePortfolio(boolean demo) {
         String env = demo ? "demo" : "real";
         JsonObject json = get(HttpUrl.parse(BASE_URL + "/trading/info/" + env + "/aggregate-portfolio"));
 
@@ -160,6 +176,146 @@ public final class EtoroClient {
             }
         }
         return new Portfolio(currency, totals, positions);
+    }
+
+    /**
+     * The same portfolio, rebuilt from {@code /pnl}.
+     *
+     * <p>Where {@code /aggregate-portfolio} reports one row per instrument,
+     * {@code /pnl} reports every open position separately, so the aggregation
+     * has to happen here: two lots of the same share are one holding.
+     *
+     * <p>Copy-trading mirrors are folded in beside the positions opened by
+     * hand. A mirror holds real positions in real instruments, and it can
+     * dwarf the rest - hundreds of them against a handful opened directly - so
+     * leaving them out would report a sliver of the portfolio as though it were
+     * the whole of it.
+     */
+    public Portfolio pnlPortfolio(boolean demo) {
+        String env = demo ? "demo" : "real";
+        return parsePnl(get(HttpUrl.parse(BASE_URL + "/trading/info/" + env + "/pnl")));
+    }
+
+    /** Split from the request so the mapping can be exercised on a saved response. */
+    static Portfolio parsePnl(JsonObject json) {
+        JsonObject body = optObject(json, "clientPortfolio");
+        if (body == null) {
+            body = json.has("data") && json.get("data").isJsonObject() ? json.getAsJsonObject("data") : json;
+        }
+        String currency = currencyName(optLong(body, "accountCurrencyId"));
+
+        List<JsonObject> rows = new ArrayList<>();
+        collectPositions(optArray(body, "positions"), rows);
+        JsonArray mirrors = optArray(body, "mirrors");
+        if (mirrors != null) {
+            for (JsonElement element : mirrors) {
+                if (element.isJsonObject()) {
+                    collectPositions(optArray(element.getAsJsonObject(), "positions"), rows);
+                }
+            }
+        }
+
+        Map<Long, Aggregate> byInstrument = new LinkedHashMap<>();
+        for (JsonObject row : rows) {
+            long instrumentId = optLong(row, "instrumentID");
+            if (instrumentId <= 0) {
+                instrumentId = optLong(row, "instrumentId");
+            }
+            JsonObject pnl = optObject(row, "unrealizedPnL");
+            BigDecimal units = decimal(row, "units");
+            BigDecimal margin = decimal(pnl, "marginInAccountCurrency");
+            if (instrumentId <= 0 || units == null || margin == null) {
+                continue;
+            }
+            BigDecimal profit = decimal(pnl, "pnL");
+            if (profit == null) {
+                profit = BigDecimal.ZERO;
+            }
+            BigDecimal openRate = decimal(row, "openRate");
+
+            Aggregate aggregate = byInstrument.computeIfAbsent(instrumentId, id -> new Aggregate());
+            // A sell is a short; netting the units signed keeps a long and a
+            // short in the same instrument from reading as one large holding.
+            boolean isBuy = !row.has("isBuy") || row.get("isBuy").getAsBoolean();
+            aggregate.units = aggregate.units.add(isBuy ? units : units.negate());
+            aggregate.invested = aggregate.invested.add(margin);
+            aggregate.pnl = aggregate.pnl.add(profit);
+            if (openRate != null) {
+                aggregate.notional = aggregate.notional.add(openRate.multiply(units));
+            }
+            BigDecimal leverage = decimal(row, "leverage");
+            if (leverage != null) {
+                aggregate.leverageWeighted = aggregate.leverageWeighted.add(leverage.multiply(margin));
+            }
+        }
+
+        List<Position> positions = new ArrayList<>();
+        BigDecimal totalValue = BigDecimal.ZERO;
+        for (Map.Entry<Long, Aggregate> entry : byInstrument.entrySet()) {
+            Aggregate aggregate = entry.getValue();
+            // What it would be worth if closed now. Deriving it from the money
+            // committed plus the profit - rather than from exposure - is what
+            // keeps it right for a short, where exposure moves the wrong way.
+            BigDecimal value = aggregate.invested.add(aggregate.pnl);
+            totalValue = totalValue.add(value);
+
+            BigDecimal units = aggregate.units.abs();
+            positions.add(new Position(
+                    entry.getKey(),
+                    currency,
+                    units,
+                    aggregate.units.signum() < 0 ? "SHORT" : "LONG",
+                    aggregate.invested.signum() == 0 ? null
+                            : aggregate.leverageWeighted.divide(aggregate.invested, 4, RoundingMode.HALF_UP),
+                    units.signum() == 0 ? null : aggregate.notional.divide(units, 6, RoundingMode.HALF_UP),
+                    aggregate.invested,
+                    value,
+                    aggregate.pnl));
+        }
+
+        Totals totals = new Totals(
+                totalValue,
+                // /pnl reports no cash figure. "credit" sits next to
+                // "bonusCredit" and is not the uninvested balance, so nothing is
+                // reported rather than a zero that would read as an empty wallet.
+                null,
+                null,
+                decimal(body, "unrealizedPnL"));
+        return new Portfolio(currency, totals, positions);
+    }
+
+    /** Running totals for one instrument while positions are folded together. */
+    private static final class Aggregate {
+        private BigDecimal units = BigDecimal.ZERO;
+        private BigDecimal invested = BigDecimal.ZERO;
+        private BigDecimal pnl = BigDecimal.ZERO;
+        private BigDecimal notional = BigDecimal.ZERO;
+        private BigDecimal leverageWeighted = BigDecimal.ZERO;
+    }
+
+    private static void collectPositions(JsonArray array, List<JsonObject> into) {
+        if (array == null) {
+            return;
+        }
+        for (JsonElement element : array) {
+            if (element.isJsonObject()) {
+                into.add(element.getAsJsonObject());
+            }
+        }
+    }
+
+    /**
+     * {@code /pnl} identifies currencies by number where the rest of the API
+     * uses names. Only the ids actually seen are mapped; an unknown one falls
+     * back to USD, which is what an eToro account is denominated in unless it
+     * was opened otherwise.
+     */
+    private static String currencyName(long currencyId) {
+        return switch ((int) currencyId) {
+            case 2 -> "GBP";
+            case 3 -> "EUR";
+            default -> "USD";
+        };
     }
 
     // ------------------------------------------------------------ instruments
@@ -317,13 +473,16 @@ public final class EtoroClient {
             if (response.code() == 401 || response.code() == 403) {
                 throw new EtoroException("eToro rejected the credentials (HTTP " + response.code()
                         + "). Check the keys are for the right environment - a Real key does not work "
-                        + "against the Demo account, or the other way round.");
+                        + "against the Demo account, or the other way round.", response.code());
             }
             if (response.code() == 429) {
-                throw new EtoroException("eToro rate limit reached. It allows 60 requests a minute; try again shortly.");
+                throw new EtoroException(
+                        "eToro rate limit reached. It allows 60 requests a minute; try again shortly.",
+                        response.code());
             }
             if (!response.isSuccessful()) {
-                throw new EtoroException("eToro returned HTTP " + response.code() + ": " + truncate(text));
+                throw new EtoroException("eToro returned HTTP " + response.code() + ": " + truncate(text),
+                        response.code());
             }
             return text;
         } catch (InterruptedIOException e) {
