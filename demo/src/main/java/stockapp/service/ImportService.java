@@ -27,9 +27,11 @@ import java.util.UUID;
  * <p>Always in two steps. A parse produces a <b>preview</b> in which every row
  * carries how it was resolved and how confident that is; nothing is written
  * until the preview is committed. That matters because identity is recovered
- * from a name or a ticker - the one export that does carry an ISIN is not read
- * for it yet - so a mapping is an inference, and an inference should be looked
- * at once before it starts feeding a net-worth figure.
+ * from a name or a ticker for every import - the one export that does carry an
+ * ISIN is not read for it yet - so a mapping is an inference, and an inference
+ * should be looked at once before it starts feeding a net-worth figure. A fund
+ * entered by hand may supply an ISIN, which is the one identifier that is not
+ * an inference at all.
  *
  * <p>Once a row is committed its broker-specific label is remembered as an
  * alias, so the same holding never has to be reviewed again.
@@ -106,9 +108,11 @@ public final class ImportService {
     /**
      * One fund, typed in by hand.
      *
-     * <p>Neither broker's export lists funds - DNB's report covers shares only
-     * and Nordnet's has no fund rows - so the roughly one third of a portfolio
-     * held in them is invisible until it is entered.
+     * <p>Not every fund can be imported. DNB's asset-class export has
+     * equityFund and interestFund sheets, but its Norwegian report is shares
+     * only and Nordnet's export has no fund rows at all - so a fund held there
+     * is invisible, and with it roughly a third of the portfolio, until it is
+     * entered here.
      *
      * @param isin  optional, and the only unambiguous identifier: a fund search
      *              returns six share classes that differ by one letter
