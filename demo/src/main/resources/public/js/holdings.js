@@ -47,6 +47,10 @@ let chart = null;
 export function teardownHoldingsChart() {
     chart?.destroy();
     chart = null;
+    // Leaving the view must also stop the price polling, or it keeps firing
+    // against a page that is no longer there.
+    clearTimeout(refreshTimer);
+    refreshAttempts = 0;
 }
 
 export async function renderHoldingsView(main) {
@@ -81,6 +85,7 @@ export async function renderHoldingsView(main) {
     bind(main);
     bindSorting();
     bindAccountFilter();
+    schedulePriceRefresh(data);
 }
 
 // ==================================================================== markup
@@ -94,14 +99,14 @@ function markup(data, history, etoro) {
         <p class="hero__eyebrow">Across your brokers</p>
         <h1 class="hero__symbol" id="holdings-heading">Holdings</h1>
         <p class="hero__price" id="h-total">${kr(data.totalNok)}</p>
-        <p class="hero__change">
+        <p class="hero__change" id="h-change">
             ${data.gainNok !== null && data.gainNok !== undefined
                 ? `<span class="${gainDir}">${fmt.arrow(data.gainNok)} ${kr(data.gainNok)}</span>
                    <span class="hero__change-label" id="h-total-label">where cost basis is known</span>`
                 : '<span class="hero__change-label" id="h-total-label">Combined value in NOK</span>'}
         </p>
 
-        ${empty ? '' : freshnessBanner(data)}
+        <div id="h-freshness">${empty ? '' : freshnessBanner(data)}</div>
 
         <div class="hero__actions">
             <button type="button" class="button button--small" id="h-import">Import a broker export</button>
@@ -129,7 +134,7 @@ function markup(data, history, etoro) {
                 </div>
             </div>
 
-            <div class="summary">
+            <div class="summary" id="h-accounts">
                 ${data.accounts.filter(a => a.holdingCount > 0).map(accountCard).join('')}
             </div>
 
@@ -522,6 +527,99 @@ function openImport() {
         const file = e.dataTransfer?.files?.[0];
         if (file) uploadFile(file);
     });
+}
+
+
+// ======================================================== background prices
+
+/**
+ * How long to wait before asking again while a refresh is running, and how
+ * many times. The cap matters: without it a permanently failing upstream
+ * would have the page polling forever.
+ */
+const REFRESH_POLL_MS = 1500;
+const REFRESH_POLL_MAX = 8;
+
+let refreshTimer = null;
+let refreshAttempts = 0;
+
+/**
+ * Re-fetches while the server says prices are still being refreshed.
+ *
+ * <p>Only the figures are replaced - the chart is left untouched, because it
+ * plots snapshot history and no live price can move it. Rebuilding it would
+ * throw away the crosshair and any scrub in progress for no reason.
+ */
+function schedulePriceRefresh(data) {
+    clearTimeout(refreshTimer);
+    if (!data?.pricesRefreshing) {
+        refreshAttempts = 0;
+        setRefreshIndicator(false);
+        return;
+    }
+    if (refreshAttempts >= REFRESH_POLL_MAX) {
+        setRefreshIndicator(false);
+        return;
+    }
+    refreshAttempts++;
+    setRefreshIndicator(true);
+    refreshTimer = setTimeout(async () => {
+        let fresh;
+        try {
+            fresh = await api.holdings();
+        } catch {
+            setRefreshIndicator(false);   // the page still shows the last good figures
+            return;
+        }
+        // The view may have been left while the request was in flight.
+        if (!qs('#h-total')) return;
+        applyPriceUpdate(fresh);
+        schedulePriceRefresh(fresh);
+    }, REFRESH_POLL_MS);
+}
+
+/** Swaps in new numbers without disturbing the chart, sort or filter. */
+function applyPriceUpdate(data) {
+    currentHoldings = data.holdings ?? [];
+    holdingsByAccount = new Map((data.accounts ?? []).map((a) => [a.name, a.holdings ?? []]));
+    if (activeAccount !== null && !holdingsByAccount.has(activeAccount)) {
+        activeAccount = null;
+    }
+
+    const total = qs('#h-total');
+    if (total) total.textContent = kr(data.totalNok);
+
+    const change = qs('#h-change');
+    if (change) {
+        const dir = fmt.direction(data.gainNok);
+        setHtml(change, data.gainNok !== null && data.gainNok !== undefined
+            ? `<span class="${dir}">${fmt.arrow(data.gainNok)} ${kr(data.gainNok)}</span>
+               <span class="hero__change-label" id="h-total-label">where cost basis is known</span>`
+            : '<span class="hero__change-label" id="h-total-label">Combined value in NOK</span>');
+    }
+
+    const freshness = qs('#h-freshness');
+    if (freshness) setHtml(freshness, freshnessBanner(data));
+
+    const accountsBox = qs('#h-accounts');
+    if (accountsBox) {
+        setHtml(accountsBox, data.accounts.filter((a) => a.holdingCount > 0).map(accountCard).join(''));
+        bindAccountFilter();
+    }
+    refreshTable();
+}
+
+/** A quiet marker, not a spinner over the numbers - they are usable already. */
+function setRefreshIndicator(active) {
+    const label = qs('#h-total-label');
+    if (!label) return;
+    const existing = qs('#h-refreshing');
+    if (active && !existing) {
+        label.insertAdjacentHTML('afterend',
+            ' <span class="note" id="h-refreshing">· updating prices…</span>');
+    } else if (!active && existing) {
+        existing.remove();
+    }
 }
 
 // ===================================================================== funds
