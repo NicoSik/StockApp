@@ -9,11 +9,12 @@ import java.util.Optional;
 /**
  * Turns a line from a broker export into a priceable instrument.
  *
- * <p>Nothing reaches this class with an ISIN - Nordnet's export has none, and
- * the one DNB layout that does is not plumbed through for it - so identity has
- * to be recovered from a name or a ticker. Doing that naively is how you end
- * up pricing a DNB Bank holding as Dun &amp; Bradstreet, or a Norwegian fund
- * as its Danish share class in DKK.
+ * <p>Almost nothing reaches this class with an ISIN. A hand-entered fund may
+ * carry one, and that is exact; every import still arrives with only a name or
+ * a ticker - Nordnet's export has no ISIN, and the DNB layout that does is not
+ * plumbed through for it yet. Recovering identity from a name naively is how
+ * you end up pricing a DNB Bank holding as Dun &amp; Bradstreet, or a Norwegian
+ * fund as its Danish share class in DKK.
  *
  * <p>Two things make it safe:
  *
