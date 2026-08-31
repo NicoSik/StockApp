@@ -15,3 +15,9 @@ mvnw text eol=lf
 
 # SQL migrations are read by the JVM, not a shell; normalise for clean diffs.
 *.sql text eol=lf
+
+# GitHub Linguist's documentation.yml matches "^[Dd]emos?/" and drops the whole
+# directory from the language statistics. demo/ is the application, not a
+# sample, so opt it back in - otherwise the repository reports itself as 90%
+# PowerShell on the strength of run.ps1 alone.
+demo/** linguist-documentation=false
