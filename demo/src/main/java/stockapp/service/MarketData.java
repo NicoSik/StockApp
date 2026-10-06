@@ -339,9 +339,4 @@ public final class MarketData {
         }
         return points;
     }
-
-    /** Drops every cached quote so the next read hits Alpaca. */
-    public void invalidateQuote(String symbol) {
-        quoteCache.invalidate(symbol.toUpperCase());
-    }
 }
