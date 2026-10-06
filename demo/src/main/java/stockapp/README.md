@@ -35,6 +35,7 @@ tables, endpoints or screens:
 
 **`Db`**
 - `migrate()` — applies every migration not yet recorded, each in its own transaction.
+- `MIGRATIONS` — the explicit list of migration files; `MigrationsTest` checks it against the folder.
 - `connection()`, `dataSource()` — a pooled connection, or the pool itself.
 - `close()` — shuts the pool down.
 
