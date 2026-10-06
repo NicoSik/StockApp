@@ -35,8 +35,9 @@ public final class NorgesBankClient {
 
     private final OkHttpClient http;
 
-    public NorgesBankClient() {
-        this.http = new OkHttpClient.Builder()
+    /** @param shared the app-wide client; see {@code AlpacaClient}. */
+    public NorgesBankClient(OkHttpClient shared) {
+        this.http = shared.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .readTimeout(Duration.ofSeconds(20))
                 .build();

@@ -51,8 +51,9 @@ public final class EtoroClient {
 
     private final OkHttpClient http;
 
-    public EtoroClient() {
-        this.http = new OkHttpClient.Builder()
+    /** @param shared the app-wide client; see {@code AlpacaClient}. */
+    public EtoroClient(OkHttpClient shared) {
+        this.http = shared.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .readTimeout(Duration.ofSeconds(30))
                 // eToro's API accepts the HTTP/2 upgrade during TLS negotiation

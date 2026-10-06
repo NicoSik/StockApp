@@ -26,7 +26,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Thin, synchronous client for the two Alpaca APIs this app uses:
@@ -53,8 +52,14 @@ public final class AlpacaClient {
     private final OkHttpClient http;
     private volatile String activeFeed;
 
-    public AlpacaClient() {
-        this.http = new OkHttpClient.Builder()
+    /**
+     * @param shared the app-wide client. Deriving from it with
+     *               {@code newBuilder()} keeps one connection pool and one
+     *               dispatcher for every upstream, while this client still sets
+     *               its own timeouts.
+     */
+    public AlpacaClient(OkHttpClient shared) {
+        this.http = shared.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .readTimeout(Duration.ofSeconds(30))
                 .callTimeout(Duration.ofSeconds(60))
@@ -425,23 +430,6 @@ public final class AlpacaClient {
             return Instant.parse(isoTimestamp).toEpochMilli();
         } catch (RuntimeException e) {
             return 0L;
-        }
-    }
-
-    public void shutdown() {
-        http.dispatcher().executorService().shutdown();
-        http.connectionPool().evictAll();
-        try {
-            if (http.cache() != null) {
-                http.cache().close();
-            }
-        } catch (IOException ignored) {
-            // Nothing useful to do while shutting down.
-        }
-        try {
-            http.dispatcher().executorService().awaitTermination(2, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         }
     }
 }

@@ -44,8 +44,9 @@ public final class YahooClient {
 
     private final OkHttpClient http;
 
-    public YahooClient() {
-        this.http = new OkHttpClient.Builder()
+    /** @param shared the app-wide client; see {@code AlpacaClient}. */
+    public YahooClient(OkHttpClient shared) {
+        this.http = shared.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .readTimeout(Duration.ofSeconds(20))
                 .build();

@@ -2,6 +2,7 @@ package stockapp;
 
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
+import okhttp3.OkHttpClient;
 import stockapp.alpaca.AlpacaClient;
 import stockapp.etoro.EtoroClient;
 import stockapp.market.InstrumentResolver;
@@ -30,6 +31,7 @@ import stockapp.web.GsonMapper;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Entry point: builds the object graph, seeds first-run data, starts the server.
@@ -65,7 +67,11 @@ public final class App {
         PortfolioRepo portfolios = new PortfolioRepo(db);
         AlertRepo alerts = new AlertRepo(db);
 
-        AlpacaClient alpaca = new AlpacaClient();
+        // One HTTP client for every upstream: each API client derives its own
+        // timeouts from it, but they share a connection pool and dispatcher.
+        OkHttpClient http = new OkHttpClient();
+
+        AlpacaClient alpaca = new AlpacaClient(http);
         MarketData marketData = new MarketData(alpaca, stocks);
         Importer importer = new Importer(alpaca, stocks);
         PortfolioService portfolio = new PortfolioService(portfolios, stocks, marketData, importer, PORTFOLIO_NAME);
@@ -78,8 +84,8 @@ public final class App {
         AccountRepo accountRepo = new AccountRepo(db);
         InstrumentRepo instrumentRepo = new InstrumentRepo(db);
         FxRepo fxRepo = new FxRepo(db);
-        YahooClient yahoo = new YahooClient();
-        FxService fxService = new FxService(new NorgesBankClient(), fxRepo);
+        YahooClient yahoo = new YahooClient(http);
+        FxService fxService = new FxService(new NorgesBankClient(http), fxRepo);
         InstrumentResolver resolver = new InstrumentResolver(yahoo);
         ImportService importService = new ImportService(accountRepo, instrumentRepo, resolver);
         ValuationService valuation = new ValuationService(accountRepo, yahoo, fxService);
@@ -87,7 +93,7 @@ public final class App {
         // eToro is the one broker here with a real personal API, so its holdings
         // arrive live rather than through a file. Optional: absent keys simply
         // hide the feature.
-        EtoroClient etoroClient = new EtoroClient();
+        EtoroClient etoroClient = new EtoroClient(http);
         EtoroSyncService etoroSync = new EtoroSyncService(etoroClient, accountRepo, instrumentRepo, fxService);
 
         portfolios.ensurePortfolio(PORTFOLIO_NAME, new BigDecimal(Config.PAPER_STARTING_CASH));
@@ -146,7 +152,7 @@ public final class App {
             System.out.println("\n[shutdown] stopping...");
             scheduler.close();
             app.stop();
-            alpaca.shutdown();
+            shutdown(http);
             db.close();
             System.out.println("[shutdown] done");
         }, "ticker-shutdown"));
@@ -177,6 +183,17 @@ public final class App {
             }
         }
         System.out.printf("[startup] created starter watchlist with %d symbols%n", added);
+    }
+
+    /** Releases the shared HTTP client's threads and pooled connections. */
+    private static void shutdown(OkHttpClient http) {
+        http.dispatcher().executorService().shutdown();
+        http.connectionPool().evictAll();
+        try {
+            http.dispatcher().executorService().awaitTermination(2, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static void banner() {
