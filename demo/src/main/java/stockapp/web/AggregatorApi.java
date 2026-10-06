@@ -10,7 +10,7 @@ import io.javalin.http.UploadedFile;
 import stockapp.etoro.EtoroClient;
 import stockapp.etoro.EtoroException;
 import stockapp.importer.ImportException;
-import stockapp.market.YahooClient;
+import stockapp.yahoo.YahooClient;
 import stockapp.repo.AccountRepo;
 import stockapp.repo.InstrumentRepo;
 import stockapp.service.EtoroSyncService;

@@ -1,6 +1,6 @@
 package stockapp.service;
 
-import stockapp.market.YahooClient;
+import stockapp.yahoo.YahooClient;
 import stockapp.repo.AccountRepo;
 
 import java.math.BigDecimal;

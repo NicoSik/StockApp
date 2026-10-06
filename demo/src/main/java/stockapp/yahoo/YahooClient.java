@@ -1,4 +1,4 @@
-package stockapp.market;
+package stockapp.yahoo;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -18,7 +18,8 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * Prices for everything Alpaca cannot reach: Oslo Børs, Stockholm, ETFs.
+ * Prices for everything Alpaca cannot reach: Oslo Børs, Stockholm, ETFs and
+ * Norwegian mutual funds.
  *
  * <p>Alpaca is US equities only, and matching a Norwegian portfolio against it
  * is actively dangerous - it resolves "DNB" to Dun &amp; Bradstreet and has no
@@ -28,7 +29,7 @@ import java.util.Optional;
  * <p>This is an <b>unofficial</b> endpoint. It is not a documented or supported
  * API, and it can change without notice. That is an accepted trade for a local
  * personal tool: when it breaks, holdings fall back to the value their broker
- * reported at import, which is the same path Norwegian funds already use.
+ * reported at import.
  *
  * <p>The batch quote endpoint (v7) now requires a session crumb and answers
  * {@code Unauthorized}, so quotes are fetched per symbol from the chart
@@ -50,8 +51,9 @@ public final class YahooClient {
                 .build();
     }
 
-    /** A live price in the instrument's own currency. */
     /**
+     * A live price in the instrument's own currency.
+     *
      * @param previousClose the prior session's close, for a day's change. Null
      *                      when the feed omits it, which is not the same as a
      *                      day that moved nothing.

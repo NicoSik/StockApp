@@ -1,6 +1,7 @@
 package stockapp.market;
 
 import org.junit.jupiter.api.Test;
+import stockapp.yahoo.YahooClient;
 
 import java.util.List;
 

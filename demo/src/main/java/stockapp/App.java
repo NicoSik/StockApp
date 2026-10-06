@@ -5,7 +5,7 @@ import io.javalin.http.staticfiles.Location;
 import stockapp.alpaca.AlpacaClient;
 import stockapp.etoro.EtoroClient;
 import stockapp.market.InstrumentResolver;
-import stockapp.market.YahooClient;
+import stockapp.yahoo.YahooClient;
 import stockapp.model.Stock;
 import stockapp.repo.AccountRepo;
 import stockapp.repo.AlertRepo;
