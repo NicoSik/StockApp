@@ -36,6 +36,11 @@ folder you are working in.
   codes are mapped in one place, `web/ErrorHandlers`.
 - **The server binds to 127.0.0.1.** It serves real holdings without
   authentication; it must never listen on other interfaces.
+- **Folder READMEs describe purpose and rules, not files.** A list of files is
+  stale the moment one is added. A `Stop` hook
+  (`.claude/hooks/check_folder_readmes.py`) sends you back when code in a
+  folder changed and its README did not; check it, and update it only if it is
+  no longer true.
 
 ## Interface direction
 

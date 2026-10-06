@@ -55,3 +55,10 @@ logs/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# --- Claude Code -----------------------------------------------------------
+# settings.json and hooks/ are shared project config. Everything else in
+# .claude/ is personal: local permissions, launch configs, lock files.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/

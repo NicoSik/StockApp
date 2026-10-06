@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_folder_readmes.py\"",
+            "timeout": 30,
+            "statusMessage": "Checking folder READMEs"
+          }
+        ]
+      }
+    ]
+  }
+}
