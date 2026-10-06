@@ -115,7 +115,7 @@ public final class DnbParser implements BrokerParser {
                     : value.divide(quantity, 6, RoundingMode.HALF_UP);
 
             holdings.add(new ParsedHolding(
-                    ticker, ticker, CURRENCY, quantity, null, lastPrice, value, value));
+                    ticker, ticker, null, CURRENCY, quantity, null, lastPrice, value, value));
         }
 
         if (holdings.isEmpty()) {

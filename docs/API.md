@@ -231,7 +231,7 @@ writing anything.
 { "id": "98cf1e9d-…", "broker": "NORDNET", "accountName": "Nordnet",
   "asOf": "2026-08-14", "totalNok": 230000.00,
   "confirmed": 6, "needsReview": 1, "unresolved": 1,
-  "rows": [{ "index": 5, "name": "AEye A", "ticker": null, "currency": "USD",
+  "rows": [{ "index": 5, "name": "AEye A", "ticker": null, "isin": null, "currency": "USD",
              "quantity": 200, "avgCost": 3.15, "lastPrice": 2.10,
              "valueNok": 3969.00, "status": "NEEDS_REVIEW", "symbol": "AEYE",
              "resolvedName": "AudioEye, Inc.", "livePrice": 12.60,

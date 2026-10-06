@@ -44,14 +44,14 @@ Drop in an export and it becomes one combined total:
 |---|---|---|
 | **eToro** | **live API** — no export needed | eToro instrument id |
 | **Nordnet** | *Aksjelister* (`.csv`) | name — no ISIN, no ticker |
-| **DNB** | holdings report (`.xlsx`) | ticker, or name |
+| **DNB** | holdings report (`.xlsx`) | ticker, or ISIN |
 
 DNB emits two different holdings workbooks and both are read: the Norwegian
 one, with an `Aksjer` sheet keyed by ticker and a `Total` sheet to reconcile
 against, and `DNBBeholdning.xlsx`, which has English headers and one sheet per
 asset class. The second carries an ISIN — the one exact identifier any of these
-files offers — but nothing downstream reads it yet, so its rows are matched by
-name like Nordnet's.
+files offers — so its rows are looked up by ISIN first, and by name only if
+that finds nothing.
 
 eToro is the only one of the three offering a personal API. Add
 `ETORO_API_KEY` and `ETORO_USER_KEY` to `.env` (Settings → Trading → API Key

@@ -209,9 +209,11 @@ own currencies. Alpaca still powers the watchlist and paper portfolio.
 
 ### Identity, usually without an ISIN
 
-Nordnet's export has only a name and DNB's main report only a ticker. The one
-DNB file that carries an ISIN is not read for it yet. So identity is usually
-inferred — and inference needs a check. Three things make it safe:
+An ISIN names an instrument exactly, and the resolver tries it first when a row
+has one: `DNBBeholdning.xlsx` carries one on every row, and a hand-entered fund
+may. But Nordnet's export has only a name and DNB's main report only a ticker,
+so for most rows identity is inferred — and inference needs a check. Three
+things make it safe:
 
 1. **Currency pins the exchange.** A NOK holding is on Oslo Børs, SEK is
    Stockholm. That eliminates most wrong candidates before a price is fetched.
@@ -231,7 +233,10 @@ of each other. Units and value settle it: their quotient is the NAV, the classes
 are nowhere near each other, and the same price check picks the right one. An
 ISIN, when the user has one, is exact and skips the search.
 
-Only a settled mapping is remembered as an alias. Caching an unverified guess
+Only a settled mapping is remembered as an alias. It is stored under the
+row's strongest label — ISIN, else ticker, else name — and looked up under all
+three, so a match remembered by name before a file carried an ISIN is still
+found once it does. Caching an unverified guess
 would skip the price check on every future import — which is how a wrong match
 becomes permanent and invisible.
 

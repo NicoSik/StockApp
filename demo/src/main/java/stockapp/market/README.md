@@ -7,7 +7,7 @@ so this is inference, and the rules below are what make it safe.
 ## What's inside
 
 **`InstrumentResolver`**
-- `resolve(ticker, name, currency, expectedPrice)` — finds the symbol for one export row and checks its live price against the export's. Returns a `Resolution`: confirmed, needs review, or unresolved.
+- `resolve(ticker, isin, name, currency, expectedPrice)` — finds the symbol for one export row, trying the ISIN, then the ticker, then the name, and checks its live price against the export's. Returns a `Resolution`: confirmed, needs review, or unresolved.
 - `describe(symbol)` — the live quote for a symbol the user picked by hand.
 - `queriesFor(name)` — what to search for: the name as given, then without a trailing share-class letter.
 - `candidates(matches, suffix)` — drops derivatives, then puts listings on the currency's exchange first.
