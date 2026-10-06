@@ -1,5 +1,8 @@
 package stockapp.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import stockapp.model.Stock;
 import stockapp.repo.StockRepo;
 import stockapp.repo.WatchlistRepo;
@@ -32,6 +35,8 @@ import java.util.concurrent.TimeUnit;
  */
 public final class Scheduler implements AutoCloseable {
 
+    private static final Logger log = LoggerFactory.getLogger(Scheduler.class);
+
     private static final ZoneId MARKET_ZONE = ZoneId.of("America/New_York");
     /** 20 minutes after the close, late enough for the closing print to settle. */
     private static final LocalTime END_OF_DAY_JOB = LocalTime.of(16, 20);
@@ -63,8 +68,7 @@ public final class Scheduler implements AutoCloseable {
         scheduleDaily("end-of-day bars", END_OF_DAY_JOB, this::refreshWatchedHistory);
         scheduleDaily("asset sync", ASSET_SYNC_JOB, alpacaSync::syncAssets);
 
-        System.out.println("[scheduler] alerts every 60s; daily jobs at "
-                + END_OF_DAY_JOB + " and " + ASSET_SYNC_JOB + " " + MARKET_ZONE.getId());
+        log.info("Alerts every 60s; daily jobs at {} and {} {}", END_OF_DAY_JOB, ASSET_SYNC_JOB, MARKET_ZONE.getId());
     }
 
     private void evaluateAlerts() {
@@ -82,8 +86,7 @@ public final class Scheduler implements AutoCloseable {
                 updated++;
             }
         }
-        System.out.printf("[scheduler] end-of-day refresh touched %d of %d watched symbols%n",
-                updated, symbols.size());
+        log.info("End-of-day refresh touched {} of {} watched symbols", updated, symbols.size());
     }
 
     /**
@@ -115,7 +118,7 @@ public final class Scheduler implements AutoCloseable {
                 task.run();
             } catch (RuntimeException e) {
                 // Swallow, so a transient failure does not cancel the schedule.
-                System.err.println("[scheduler] job \"" + name + "\" failed: " + e.getMessage());
+                log.error("Job \"{}\" failed", name, e);
             }
         };
     }

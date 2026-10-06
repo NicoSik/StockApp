@@ -3,6 +3,8 @@ package stockapp.web;
 import io.javalin.config.RoutesConfig;
 import io.javalin.http.Context;
 import io.javalin.http.HttpStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import stockapp.Config;
 import stockapp.alpaca.AlpacaClient;
 import stockapp.alpaca.AlpacaException;
@@ -38,6 +40,8 @@ import java.util.Map;
  * interaction, and user-supplied symbols interpolated straight into markup.
  */
 public final class Api {
+
+    private static final Logger log = LoggerFactory.getLogger(Api.class);
 
     private static final int MAX_SEARCH_RESULTS = 12;
     private static final int MAX_ROW_SYMBOLS = 100;
@@ -385,14 +389,13 @@ public final class Api {
                 fail(ctx, HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage()));
 
         routes.exception(AlpacaException.class, (e, ctx) -> {
-            System.out.println("[api] upstream failure: " + e.getMessage());
+            log.warn("Alpaca failure on {} {}: {}", ctx.method(), ctx.path(), e.getMessage());
             fail(ctx, HttpStatus.BAD_GATEWAY, "The market data provider is not responding. Try again shortly.");
         });
 
         routes.exception(Exception.class, (e, ctx) -> {
             // Unexpected: log the stack trace for us, send a plain message out.
-            System.err.println("[api] unhandled error on " + ctx.method() + " " + ctx.path());
-            e.printStackTrace();
+            log.error("Unhandled error on {} {}", ctx.method(), ctx.path(), e);
             fail(ctx, HttpStatus.INTERNAL_SERVER_ERROR, "Something went wrong handling that request.");
         });
     }

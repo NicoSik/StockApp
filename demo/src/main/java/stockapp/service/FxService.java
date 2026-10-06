@@ -1,5 +1,7 @@
 package stockapp.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import stockapp.norgesbank.NorgesBankClient;
 import stockapp.repo.FxRepo;
 
@@ -19,6 +21,8 @@ import java.util.Map;
  * This class adds the caching and the fallback to stored rates.
  */
 public final class FxService {
+
+    private static final Logger log = LoggerFactory.getLogger(FxService.class);
 
     /** The currencies this app can encounter, from the broker exports. */
     private static final List<String> CURRENCIES = List.of("USD", "EUR", "SEK", "DKK", "GBP");
@@ -77,7 +81,7 @@ public final class FxService {
                 }
                 return fetched.isEmpty() ? null : fetched;
             } catch (RuntimeException e) {
-                System.out.println("[fx] Norges Bank unavailable: " + e.getMessage());
+                log.warn("Norges Bank unavailable: {}", e.getMessage());
                 return null;
             }
         });

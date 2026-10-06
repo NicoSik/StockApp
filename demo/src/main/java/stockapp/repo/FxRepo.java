@@ -1,5 +1,8 @@
 package stockapp.repo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import stockapp.Db;
 
 import java.math.BigDecimal;
@@ -14,6 +17,8 @@ import java.util.Map;
 
 /** Stores Norges Bank rates so the app can still value a portfolio offline. */
 public final class FxRepo {
+
+    private static final Logger log = LoggerFactory.getLogger(FxRepo.class);
 
     private final Db db;
 
@@ -40,7 +45,7 @@ public final class FxRepo {
         } catch (SQLException e) {
             // Caching rates is an optimisation; failing to store them must not
             // break a valuation that already has the numbers in hand.
-            System.out.println("[fx] could not cache rates: " + e.getMessage());
+            log.warn("Could not cache rates: {}", e.getMessage());
         }
     }
 
@@ -60,7 +65,7 @@ public final class FxRepo {
                 rates.put(rs.getString("base"), rs.getBigDecimal("rate"));
             }
         } catch (SQLException e) {
-            System.out.println("[fx] could not read cached rates: " + e.getMessage());
+            log.warn("Could not read cached rates: {}", e.getMessage());
         }
         return rates;
     }

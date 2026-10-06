@@ -3,6 +3,8 @@ package stockapp;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
 import okhttp3.OkHttpClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import stockapp.alpaca.AlpacaClient;
 import stockapp.etoro.EtoroClient;
 import stockapp.market.InstrumentResolver;
@@ -31,6 +33,7 @@ import stockapp.web.GsonMapper;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -40,6 +43,8 @@ import java.util.concurrent.TimeUnit;
  * expensive happens - credentials, then the database, then the network.
  */
 public final class App {
+
+    private static final Logger log = LoggerFactory.getLogger(App.class);
 
     /**
      * Loopback only. The app has no authentication and serves real holdings,
@@ -57,7 +62,7 @@ public final class App {
     public static void main(String[] args) {
         banner();
         Config.validate();
-        System.out.println(Config.summary());
+        log.info("Configuration:\n{}", Config.summary());
 
         Db db = new Db();
         db.migrate();
@@ -103,13 +108,13 @@ public final class App {
             try {
                 alpacaSync.syncAssets();
             } catch (RuntimeException e) {
-                System.out.println("[startup] asset sync skipped: " + e.getMessage());
+                log.warn("Asset sync skipped: {}", e.getMessage());
             }
         } else {
             // Locale.ROOT: the default locale groups with U+00A0, which the
             // Windows console renders as a replacement character.
-            System.out.printf(java.util.Locale.ROOT, "[startup] %,d stocks already in the database "
-                    + "(set SYNC_ASSETS_ON_START=true to refresh at boot)%n", stocks.count());
+            log.info("{} stocks already in the database (set SYNC_ASSETS_ON_START=true to refresh at boot)",
+                    String.format(Locale.ROOT, "%,d", stocks.count()));
         }
 
         Scheduler scheduler = new Scheduler(alertService, alpacaSync, stocks, watchlists);
@@ -149,12 +154,12 @@ public final class App {
         app.start(BIND_HOST, Config.SERVER_PORT);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("\n[shutdown] stopping...");
+            log.info("Stopping...");
             scheduler.close();
             app.stop();
             shutdown(http);
             db.close();
-            System.out.println("[shutdown] done");
+            log.info("Stopped");
         }, "ticker-shutdown"));
 
         System.out.println();
@@ -182,7 +187,7 @@ public final class App {
                 added++;
             }
         }
-        System.out.printf("[startup] created starter watchlist with %d symbols%n", added);
+        log.info("Created starter watchlist with {} symbols", added);
     }
 
     /** Releases the shared HTTP client's threads and pooled connections. */

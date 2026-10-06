@@ -1,5 +1,8 @@
 package stockapp.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import stockapp.Config;
 import stockapp.alpaca.AlpacaClient;
 import stockapp.alpaca.AlpacaException;
@@ -35,6 +38,8 @@ import java.util.Map;
  */
 public final class MarketData {
 
+    private static final Logger log = LoggerFactory.getLogger(MarketData.class);
+
     private static final ZoneId MARKET_ZONE = ZoneId.of("America/New_York");
     private static final LocalTime REGULAR_OPEN = LocalTime.of(9, 30);
     private static final LocalTime REGULAR_CLOSE = LocalTime.of(16, 0);
@@ -58,7 +63,7 @@ public final class MarketData {
             try {
                 return alpaca.clock();
             } catch (AlpacaException e) {
-                System.out.println("[market] clock unavailable: " + e.getMessage());
+                log.warn("Clock unavailable: {}", e.getMessage());
                 return null;
             }
         });
@@ -101,7 +106,7 @@ public final class MarketData {
                     result.put(symbol, quote);
                 });
             } catch (AlpacaException e) {
-                System.out.println("[market] quote fetch failed: " + e.getMessage());
+                log.warn("Quote fetch failed: {}", e.getMessage());
             }
             // Whatever is still missing gets its last known value rather than
             // disappearing from the UI mid-session.
@@ -175,14 +180,13 @@ public final class MarketData {
                 try {
                     stocks.saveDailyBars(stock.id(), bars);
                 } catch (RuntimeException e) {
-                    System.out.println("[market] could not persist bars for " + stock.symbol() + ": " + e.getMessage());
+                    log.warn("Could not persist bars for {}: {}", stock.symbol(), e.getMessage());
                 }
             }
 
             return new Candles(stock.symbol(), range.label(), range.timeframe(), bars, baseline, "alpaca");
         } catch (AlpacaException e) {
-            System.out.println("[market] bars failed for " + stock.symbol() + " " + range.label()
-                    + ": " + e.getMessage());
+            log.warn("Bars failed for {} {}: {}", stock.symbol(), range.label(), e.getMessage());
             return fromDatabase(stock, range);
         }
     }
@@ -288,7 +292,7 @@ public final class MarketData {
                 }
             }
         } catch (AlpacaException e) {
-            System.out.println("[market] sparkline fetch failed: " + e.getMessage());
+            log.warn("Sparkline fetch failed: {}", e.getMessage());
         }
 
         for (String symbol : misses) {

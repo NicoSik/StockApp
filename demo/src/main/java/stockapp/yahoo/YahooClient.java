@@ -9,6 +9,8 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -36,6 +38,8 @@ import java.util.Optional;
  * endpoint and cached by the caller.
  */
 public final class YahooClient {
+
+    private static final Logger log = LoggerFactory.getLogger(YahooClient.class);
 
     private static final String QUOTE_HOST = "https://query1.finance.yahoo.com";
     /** Yahoo rejects requests without a browser-shaped User-Agent. */
@@ -193,7 +197,7 @@ public final class YahooClient {
             JsonElement parsed = JsonParser.parseString(text);
             return parsed.isJsonObject() ? parsed.getAsJsonObject() : null;
         } catch (IOException | RuntimeException e) {
-            System.out.println("[yahoo] request failed: " + e.getMessage());
+            log.warn("Request failed: {}", e.getMessage());
             return null;
         }
     }

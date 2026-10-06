@@ -1,5 +1,8 @@
 package stockapp.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import stockapp.model.Alert;
 import stockapp.model.Quote;
 import stockapp.repo.AlertRepo;
@@ -11,6 +14,8 @@ import java.util.Map;
 
 /** Evaluates pending price alerts against the latest quotes. */
 public final class AlertService {
+
+    private static final Logger log = LoggerFactory.getLogger(AlertService.class);
 
     private final AlertRepo alerts;
     private final MarketData marketData;
@@ -52,7 +57,7 @@ public final class AlertService {
 
             if (crossed && alerts.markTriggered(alert.id(), price)) {
                 alerts.find(alert.id()).ifPresent(fired::add);
-                System.out.printf("[alert] %s crossed %s %s at %s%n",
+                log.info("{} crossed {} {} at {}",
                         alert.symbol(), alert.direction().toLowerCase(), alert.threshold(), price);
             }
         }

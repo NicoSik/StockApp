@@ -9,9 +9,9 @@
 
     <!-- File appender -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>logs/stocktrader.log</file>
+        <file>logs/ticker.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>logs/stocktrader.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <fileNamePattern>logs/ticker.%d{yyyy-MM-dd}.log</fileNamePattern>
             <maxHistory>30</maxHistory>
         </rollingPolicy>
         <encoder>
