@@ -14,19 +14,19 @@ class JsonTest {
 
     @Test
     void rejectsAnEmptyBody() {
-        assertThrows(Json.BadRequest.class, () -> Json.parseObject(null));
-        assertThrows(Json.BadRequest.class, () -> Json.parseObject("   "));
+        assertThrows(BadRequest.class, () -> Json.parseObject(null));
+        assertThrows(BadRequest.class, () -> Json.parseObject("   "));
     }
 
     @Test
     void rejectsMalformedJson() {
-        assertThrows(Json.BadRequest.class, () -> Json.parseObject("{oops"));
+        assertThrows(BadRequest.class, () -> Json.parseObject("{oops"));
     }
 
     @Test
     void rejectsAJsonValueThatIsNotAnObject() {
-        assertThrows(Json.BadRequest.class, () -> Json.parseObject("[1, 2, 3]"));
-        assertThrows(Json.BadRequest.class, () -> Json.parseObject("\"AAPL\""));
+        assertThrows(BadRequest.class, () -> Json.parseObject("[1, 2, 3]"));
+        assertThrows(BadRequest.class, () -> Json.parseObject("\"AAPL\""));
     }
 
     @Test
@@ -37,9 +37,9 @@ class JsonTest {
 
     @Test
     void aMissingOrBlankRequiredStringIsRejected() {
-        assertThrows(Json.BadRequest.class,
+        assertThrows(BadRequest.class,
                 () -> Json.requireString(Json.parseObject("{}"), "symbol"));
-        assertThrows(Json.BadRequest.class,
+        assertThrows(BadRequest.class,
                 () -> Json.requireString(Json.parseObject("{\"symbol\":\"  \"}"), "symbol"));
     }
 
@@ -54,17 +54,17 @@ class JsonTest {
 
     @Test
     void nonPositiveQuantitiesAreRejected() {
-        assertThrows(Json.BadRequest.class,
+        assertThrows(BadRequest.class,
                 () -> Json.requirePositiveDecimal(Json.parseObject("{\"quantity\": 0}"), "quantity"));
-        assertThrows(Json.BadRequest.class,
+        assertThrows(BadRequest.class,
                 () -> Json.requirePositiveDecimal(Json.parseObject("{\"quantity\": -5}"), "quantity"));
     }
 
     @Test
     void nonNumericQuantitiesAreRejected() {
-        assertThrows(Json.BadRequest.class,
+        assertThrows(BadRequest.class,
                 () -> Json.requirePositiveDecimal(Json.parseObject("{\"quantity\": \"lots\"}"), "quantity"));
-        assertThrows(Json.BadRequest.class,
+        assertThrows(BadRequest.class,
                 () -> Json.requirePositiveDecimal(Json.parseObject("{}"), "quantity"));
     }
 
@@ -76,7 +76,7 @@ class JsonTest {
 
     @Test
     void valuesOutsideTheAllowedSetAreRejectedWithAHelpfulMessage() {
-        Json.BadRequest error = assertThrows(Json.BadRequest.class,
+        BadRequest error = assertThrows(BadRequest.class,
                 () -> Json.requireOneOf(Json.parseObject("{\"side\":\"HODL\"}"), "side", "BUY", "SELL"));
         assertTrue(error.getMessage().contains("BUY"), "the message should list the allowed values");
     }

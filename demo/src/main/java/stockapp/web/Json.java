@@ -49,13 +49,6 @@ public final class Json {
         return GSON.toJson(value);
     }
 
-    /** Raised for a malformed or missing field; the message reaches the user. */
-    public static class BadRequest extends RuntimeException {
-        public BadRequest(String message) {
-            super(message);
-        }
-    }
-
     public static JsonObject parseObject(String body) {
         if (body == null || body.isBlank()) {
             throw new BadRequest("A JSON request body is required.");

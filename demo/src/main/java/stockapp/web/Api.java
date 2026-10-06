@@ -3,11 +3,8 @@ package stockapp.web;
 import io.javalin.config.RoutesConfig;
 import io.javalin.http.Context;
 import io.javalin.http.HttpStatus;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import stockapp.Config;
 import stockapp.alpaca.AlpacaClient;
-import stockapp.alpaca.AlpacaException;
 import stockapp.model.Alert;
 import stockapp.model.Candles;
 import stockapp.model.Quote;
@@ -17,7 +14,6 @@ import stockapp.model.Stock;
 import stockapp.model.TradeRecord;
 import stockapp.model.Watchlist;
 import stockapp.repo.AlertRepo;
-import stockapp.repo.PortfolioRepo;
 import stockapp.repo.StockRepo;
 import stockapp.repo.WatchlistRepo;
 import stockapp.service.AlertService;
@@ -40,8 +36,6 @@ import java.util.Map;
  * interaction, and user-supplied symbols interpolated straight into markup.
  */
 public final class Api {
-
-    private static final Logger log = LoggerFactory.getLogger(Api.class);
 
     private static final int MAX_SEARCH_RESULTS = 12;
     private static final int MAX_ROW_SYMBOLS = 100;
@@ -72,8 +66,6 @@ public final class Api {
     }
 
     public void register(RoutesConfig routes) {
-        registerErrorHandlers(routes);
-
         routes.get("/api/health", this::health);
         routes.get("/api/meta", this::meta);
         routes.get("/api/market/clock", ctx -> ctx.json(marketData.clock()));
@@ -254,7 +246,7 @@ public final class Api {
         requireWatchlist(id);
         var body = Json.parseObject(ctx.body());
         if (!body.has("symbols") || !body.get("symbols").isJsonArray()) {
-            throw new Json.BadRequest("\"symbols\" must be an array of ticker symbols.");
+            throw new BadRequest("\"symbols\" must be an array of ticker symbols.");
         }
         List<Integer> stockIds = new ArrayList<>();
         body.getAsJsonArray("symbols").forEach(element ->
@@ -313,16 +305,9 @@ public final class Api {
 
     // --------------------------------------------------------------- helpers
 
-    /** Raised when a path refers to something that does not exist. */
-    public static class NotFound extends RuntimeException {
-        public NotFound(String message) {
-            super(message);
-        }
-    }
-
     private Stock requireStock(String symbol) {
         if (symbol == null || symbol.isBlank()) {
-            throw new Json.BadRequest("A ticker symbol is required.");
+            throw new BadRequest("A ticker symbol is required.");
         }
         return stocks.findBySymbol(symbol.trim())
                 .orElseThrow(() -> new NotFound("No stock named \"" + symbol.trim().toUpperCase(Locale.ROOT)
@@ -355,7 +340,7 @@ public final class Api {
         try {
             return Integer.parseInt(raw.trim());
         } catch (NumberFormatException e) {
-            throw new Json.BadRequest("\"" + name + "\" must be a whole number.");
+            throw new BadRequest("\"" + name + "\" must be a whole number.");
         }
     }
 
@@ -369,38 +354,5 @@ public final class Api {
 
     private static int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
-    }
-
-    // --------------------------------------------------------- error mapping
-
-    /**
-     * Maps exceptions to status codes and a uniform {@code {"error": "..."}}
-     * body, so the client has exactly one shape to handle.
-     */
-    private void registerErrorHandlers(RoutesConfig routes) {
-        routes.exception(Json.BadRequest.class, (e, ctx) ->
-                fail(ctx, HttpStatus.BAD_REQUEST, e.getMessage()));
-
-        routes.exception(NotFound.class, (e, ctx) ->
-                fail(ctx, HttpStatus.NOT_FOUND, e.getMessage()));
-
-        // A rejected order is a valid request the portfolio refused, not a bug.
-        routes.exception(PortfolioRepo.TradeRejected.class, (e, ctx) ->
-                fail(ctx, HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage()));
-
-        routes.exception(AlpacaException.class, (e, ctx) -> {
-            log.warn("Alpaca failure on {} {}: {}", ctx.method(), ctx.path(), e.getMessage());
-            fail(ctx, HttpStatus.BAD_GATEWAY, "The market data provider is not responding. Try again shortly.");
-        });
-
-        routes.exception(Exception.class, (e, ctx) -> {
-            // Unexpected: log the stack trace for us, send a plain message out.
-            log.error("Unhandled error on {} {}", ctx.method(), ctx.path(), e);
-            fail(ctx, HttpStatus.INTERNAL_SERVER_ERROR, "Something went wrong handling that request.");
-        });
-    }
-
-    private static void fail(Context ctx, HttpStatus status, String message) {
-        ctx.status(status).json(Map.of("error", message == null ? status.getMessage() : message));
     }
 }

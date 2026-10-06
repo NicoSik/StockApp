@@ -8,7 +8,6 @@ import org.slf4j.LoggerFactory;
 import stockapp.alpaca.AlpacaClient;
 import stockapp.etoro.EtoroClient;
 import stockapp.market.InstrumentResolver;
-import stockapp.yahoo.YahooClient;
 import stockapp.model.Stock;
 import stockapp.norgesbank.NorgesBankClient;
 import stockapp.repo.AccountRepo;
@@ -29,11 +28,14 @@ import stockapp.service.Scheduler;
 import stockapp.service.ValuationService;
 import stockapp.web.AggregatorApi;
 import stockapp.web.Api;
+import stockapp.web.ErrorHandlers;
 import stockapp.web.GsonMapper;
+import stockapp.yahoo.YahooClient;
 
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -83,8 +85,8 @@ public final class App {
         AlertService alertService = new AlertService(alerts, marketData);
 
         // --- Multi-broker aggregator ---------------------------------------
-        // Separate from everything above: real holdings imported from DNB and
-        // Nordnet, valued in NOK. Alpaca cannot price Oslo Børs (it resolves
+        // Separate from everything above: real holdings from DNB, Nordnet and
+        // eToro, valued in NOK. Alpaca cannot price Oslo Børs (it resolves
         // "DNB" to Dun & Bradstreet), so this half uses Yahoo and Norges Bank.
         AccountRepo accountRepo = new AccountRepo(db);
         InstrumentRepo instrumentRepo = new InstrumentRepo(db);
@@ -135,7 +137,7 @@ public final class App {
                 // after an edit, which makes a shipped change look like it never
                 // happened. There is no CDN here and the files are a few KB, so
                 // correctness beats caching.
-                staticFiles.headers = java.util.Map.of(
+                staticFiles.headers = Map.of(
                         "Cache-Control", "no-cache, must-revalidate");
             });
             // The UI is one page with a client-side router. Serving index.html
@@ -146,6 +148,7 @@ public final class App {
 
             // Javalin 7 moved routing off the Javalin instance and into the
             // config block; handlers are registered against config.routes.
+            ErrorHandlers.register(config.routes);
             aggregatorApi.register(config.routes);
             // Registered last because Api ends with a /api/* catch-all.
             api.register(config.routes);
