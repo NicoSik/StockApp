@@ -41,6 +41,8 @@ folder you are working in.
   (`.claude/hooks/check_folder_readmes.py`) sends you back when code in a
   folder changed and its README did not; check it, and update it only if it is
   no longer true.
+- **No Claude attribution** in commits or pull requests — no `Co-Authored-By`,
+  no "Generated with" footer. `.claude/settings.json` turns it off.
 
 ## Interface direction
 
