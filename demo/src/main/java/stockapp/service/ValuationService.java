@@ -4,7 +4,6 @@ import stockapp.yahoo.YahooClient;
 import stockapp.repo.AccountRepo;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -21,6 +20,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+
+import static stockapp.model.Money.money;
+import static stockapp.model.Money.percent;
 
 /**
  * Values every account in NOK.
@@ -458,16 +460,5 @@ public final class ValuationService {
             points.add(point);
         }
         return points;
-    }
-
-    private static BigDecimal money(BigDecimal value) {
-        return (value == null ? BigDecimal.ZERO : value).setScale(2, RoundingMode.HALF_UP);
-    }
-
-    private static BigDecimal percent(BigDecimal part, BigDecimal whole) {
-        if (whole == null || whole.signum() == 0) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-        }
-        return part.multiply(BigDecimal.valueOf(100)).divide(whole, 2, RoundingMode.HALF_UP);
     }
 }

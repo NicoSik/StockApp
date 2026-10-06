@@ -4,6 +4,8 @@ import stockapp.Db;
 import stockapp.model.Stock;
 import stockapp.model.TradeRecord;
 
+import stockapp.model.Money;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.Connection;
@@ -15,6 +17,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
+import static stockapp.model.Money.money;
+
 /**
  * The paper portfolio's storage layer.
  *
@@ -25,8 +29,7 @@ import java.util.List;
  */
 public final class PortfolioRepo {
 
-    /** Currency is rounded to cents; share counts allow fractional trading. */
-    public static final int MONEY_SCALE = 2;
+    /** Share counts allow fractional trading, to six decimals. */
     public static final int QUANTITY_SCALE = 6;
 
     private final Db db;
@@ -187,7 +190,7 @@ public final class PortfolioRepo {
                     // Weighted average of the existing basis and the new lot.
                     BigDecimal existingBasis = position.quantity.multiply(position.avgCost);
                     newAvgCost = existingBasis.add(amount)
-                            .divide(newQuantity, MONEY_SCALE + 4, RoundingMode.HALF_UP)
+                            .divide(newQuantity, Money.SCALE + 4, RoundingMode.HALF_UP)
                             .setScale(4, RoundingMode.HALF_UP);
                 } else {
                     if (qty.compareTo(position.quantity) > 0) {
@@ -410,10 +413,6 @@ public final class PortfolioRepo {
             ps.setInt(1, portfolioId);
             ps.executeUpdate();
         }
-    }
-
-    private static BigDecimal money(BigDecimal value) {
-        return (value == null ? BigDecimal.ZERO : value).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
     }
 
     private static String trim(BigDecimal value) {

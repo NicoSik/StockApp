@@ -24,6 +24,9 @@ import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
+import static stockapp.model.Money.money;
+import static stockapp.model.Money.percent;
+
 /**
  * Values the paper portfolio and reconstructs its history.
  *
@@ -33,10 +36,6 @@ import java.util.TreeSet;
  * {@code double} constructor so that 302.2 stays 302.20.
  */
 public final class PortfolioService {
-
-    private static final int MONEY_SCALE = 2;
-    private static final int PERCENT_SCALE = 2;
-    private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
 
     private final PortfolioRepo portfolios;
     private final StockRepo stocks;
@@ -302,21 +301,5 @@ public final class PortfolioService {
     public static BigDecimal tidyQuantity(BigDecimal quantity) {
         BigDecimal stripped = (quantity == null ? BigDecimal.ZERO : quantity).stripTrailingZeros();
         return stripped.scale() < 0 ? stripped.setScale(0, RoundingMode.UNNECESSARY) : stripped;
-    }
-
-    private static BigDecimal money(BigDecimal value) {
-        return (value == null ? BigDecimal.ZERO : value).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
-    }
-
-    private static BigDecimal money(double value) {
-        return BigDecimal.valueOf(value).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
-    }
-
-    /** {@code part / whole * 100}, or zero when the denominator is zero. */
-    private static BigDecimal percent(BigDecimal part, BigDecimal whole) {
-        if (whole == null || whole.signum() == 0) {
-            return BigDecimal.ZERO.setScale(PERCENT_SCALE, RoundingMode.HALF_UP);
-        }
-        return part.multiply(HUNDRED).divide(whole, PERCENT_SCALE, RoundingMode.HALF_UP);
     }
 }
