@@ -24,6 +24,9 @@ import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
+import static stockapp.model.Money.money;
+import static stockapp.model.Money.percent;
+
 /**
  * Values the paper portfolio and reconstructs its history.
  *
@@ -34,25 +37,21 @@ import java.util.TreeSet;
  */
 public final class PortfolioService {
 
-    private static final int MONEY_SCALE = 2;
-    private static final int PERCENT_SCALE = 2;
-    private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
-
     private final PortfolioRepo portfolios;
     private final StockRepo stocks;
     private final MarketData marketData;
-    private final Importer importer;
+    private final AlpacaSync alpacaSync;
     private final String portfolioName;
 
     public PortfolioService(PortfolioRepo portfolios,
                             StockRepo stocks,
                             MarketData marketData,
-                            Importer importer,
+                            AlpacaSync alpacaSync,
                             String portfolioName) {
         this.portfolios = portfolios;
         this.stocks = stocks;
         this.marketData = marketData;
-        this.importer = importer;
+        this.alpacaSync = alpacaSync;
         this.portfolioName = portfolioName;
     }
 
@@ -271,7 +270,7 @@ public final class PortfolioService {
     }
 
     private NavigableMap<LocalDate, BigDecimal> dailyCloses(int stockId, LocalDate from) {
-        stocks.findById(stockId).ifPresent(stock -> importer.ensureDailyCoverage(stock, from));
+        stocks.findById(stockId).ifPresent(stock -> alpacaSync.ensureDailyCoverage(stock, from));
         NavigableMap<LocalDate, BigDecimal> series = new TreeMap<>();
         for (Candle candle : stocks.dailyBars(stockId, from)) {
             series.put(Instant.ofEpochMilli(candle.time()).atZone(ZoneOffset.UTC).toLocalDate(),
@@ -302,21 +301,5 @@ public final class PortfolioService {
     public static BigDecimal tidyQuantity(BigDecimal quantity) {
         BigDecimal stripped = (quantity == null ? BigDecimal.ZERO : quantity).stripTrailingZeros();
         return stripped.scale() < 0 ? stripped.setScale(0, RoundingMode.UNNECESSARY) : stripped;
-    }
-
-    private static BigDecimal money(BigDecimal value) {
-        return (value == null ? BigDecimal.ZERO : value).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
-    }
-
-    private static BigDecimal money(double value) {
-        return BigDecimal.valueOf(value).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
-    }
-
-    /** {@code part / whole * 100}, or zero when the denominator is zero. */
-    private static BigDecimal percent(BigDecimal part, BigDecimal whole) {
-        if (whole == null || whole.signum() == 0) {
-            return BigDecimal.ZERO.setScale(PERCENT_SCALE, RoundingMode.HALF_UP);
-        }
-        return part.multiply(HUNDRED).divide(whole, PERCENT_SCALE, RoundingMode.HALF_UP);
     }
 }

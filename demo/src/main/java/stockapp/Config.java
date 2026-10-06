@@ -1,6 +1,8 @@
 package stockapp;
 
 import io.github.cdimascio.dotenv.Dotenv;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,6 +25,10 @@ import java.nio.file.Paths;
  * somewhere else entirely.
  */
 public final class Config {
+
+    // Declared first: static fields initialise in order, and the lookups below
+    // can already need to warn.
+    private static final Logger log = LoggerFactory.getLogger(Config.class);
 
     private static final Dotenv DOTENV = loadDotenv();
 
@@ -59,7 +65,7 @@ public final class Config {
     public static final boolean ETORO_DEMO = getBool("ETORO_DEMO", false);
 
     // --- Server -------------------------------------------------------------
-    public static final int SERVER_PORT = getInt("SERVER_PORT", 4567);
+    public static final int SERVER_PORT = getInt("SERVER_PORT", 9090);
 
     // --- Behaviour ----------------------------------------------------------
     /** Virtual starting cash for the local paper portfolio. */
@@ -90,17 +96,17 @@ public final class Config {
                     """);
         }
         if (DB_PASSWORD.isBlank()) {
-            System.out.println("[config] WARNING: DB_PASSWORD is empty; the database connection will likely fail.");
+            log.warn("DB_PASSWORD is empty; the database connection will likely fail.");
         }
     }
 
     public static String summary() {
         return """
-                [config] database : %s (user %s, pool %d)
-                [config] trading  : %s
-                [config] data     : %s (feed %s)
-                [config] key id   : %s
-                [config] port     : %d"""
+                  database : %s (user %s, pool %d)
+                  trading  : %s
+                  data     : %s (feed %s)
+                  key id   : %s
+                  port     : %d"""
                 .formatted(DB_URL, DB_USERNAME, DB_POOL_SIZE, API_URL, DATA_URL, DATA_FEED, maskedKeyId(), SERVER_PORT);
     }
 
@@ -132,7 +138,7 @@ public final class Config {
         try {
             return Integer.parseInt(raw.trim());
         } catch (NumberFormatException e) {
-            System.out.printf("[config] WARNING: %s=\"%s\" is not a number; using %d.%n", key, raw, defaultValue);
+            log.warn("{}=\"{}\" is not a number; using {}.", key, raw, defaultValue);
             return defaultValue;
         }
     }

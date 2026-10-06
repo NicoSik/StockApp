@@ -9,6 +9,8 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import stockapp.Config;
 import stockapp.model.Candle;
 import stockapp.model.MarketClock;
@@ -26,7 +28,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Thin, synchronous client for the two Alpaca APIs this app uses:
@@ -38,6 +39,8 @@ import java.util.concurrent.TimeUnit;
  * on a free data plan without any configuration.
  */
 public final class AlpacaClient {
+
+    private static final Logger log = LoggerFactory.getLogger(AlpacaClient.class);
 
     /** Alpaca caps a single bars request at 10,000 rows. */
     private static final int MAX_BARS_PER_PAGE = 10_000;
@@ -53,8 +56,14 @@ public final class AlpacaClient {
     private final OkHttpClient http;
     private volatile String activeFeed;
 
-    public AlpacaClient() {
-        this.http = new OkHttpClient.Builder()
+    /**
+     * @param shared the app-wide client. Deriving from it with
+     *               {@code newBuilder()} keeps one connection pool and one
+     *               dispatcher for every upstream, while this client still sets
+     *               its own timeouts.
+     */
+    public AlpacaClient(OkHttpClient shared) {
+        this.http = shared.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .readTimeout(Duration.ofSeconds(30))
                 .callTimeout(Duration.ofSeconds(60))
@@ -340,8 +349,8 @@ public final class AlpacaClient {
             if (!e.isSubscriptionProblem() || activeFeed.equals("iex")) {
                 throw e;
             }
-            System.out.println("[alpaca] account is not entitled to the '" + activeFeed
-                    + "' feed; falling back to 'iex' for the rest of this run.");
+            log.warn("Account is not entitled to the '{}' feed; falling back to 'iex' for the rest of this run.",
+                    activeFeed);
             activeFeed = "iex";
             HttpUrl retry = url.newBuilder().setQueryParameter("feed", "iex").build();
             return getJson(retry);
@@ -425,23 +434,6 @@ public final class AlpacaClient {
             return Instant.parse(isoTimestamp).toEpochMilli();
         } catch (RuntimeException e) {
             return 0L;
-        }
-    }
-
-    public void shutdown() {
-        http.dispatcher().executorService().shutdown();
-        http.connectionPool().evictAll();
-        try {
-            if (http.cache() != null) {
-                http.cache().close();
-            }
-        } catch (IOException ignored) {
-            // Nothing useful to do while shutting down.
-        }
-        try {
-            http.dispatcher().executorService().awaitTermination(2, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         }
     }
 }

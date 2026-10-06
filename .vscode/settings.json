@@ -1,21 +1,10 @@
 {
-    // Credentials used to live here in `terminal.integrated.env.windows`, which
-    // is a tracked file. They now live in .env (gitignored) and are read by
-    // stockapp.Config, so there is nothing secret in this file.
+    // Shared editor settings only. Anything machine-specific - which JDK to
+    // use, in particular - belongs in your own user settings, not here: a path
+    // like C:\Program Files\Java\... is wrong on every other machine.
+    // The project needs JDK 17+; see README.md > Troubleshooting.
     "java.configuration.updateBuildConfiguration": "automatic",
     "java.debug.settings.onBuildFailureProceed": true,
-
-    // Point the VS Code Java extension at a JDK 17+ runtime. Javalin 6 is
-    // compiled for 17; building this project with the older JDK 16 that used to
-    // be on JAVA_HOME fails with "Text Blocks are only available with source
-    // level 15 and above" and leaves broken classes in target/.
-    "java.configuration.runtimes": [
-        {
-            "name": "JavaSE-20",
-            "path": "C:\\Program Files\\Java\\jdk-20",
-            "default": true
-        }
-    ],
     "java.format.settings.url": "",
     "files.exclude": {
         "**/target": true

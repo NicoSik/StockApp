@@ -12,7 +12,7 @@
     <description>Real-time stock watchlist, charting and paper-portfolio app</description>
 
     <properties>
-        <!-- Javalin 6 ships Java 17 bytecode. The old 1.8 source/target could
+        <!-- Javalin ships Java 17 bytecode. The old 1.8 source/target could
              never have compiled against it - that is why the server would not
              start. -->
         <maven.compiler.release>17</maven.compiler.release>
@@ -70,7 +70,7 @@
             <version>${gson.version}</version>
         </dependency>
 
-        <!-- HTTP client for the Alpaca APIs -->
+        <!-- HTTP client for every upstream: Alpaca, Yahoo, Norges Bank, eToro -->
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>okhttp</artifactId>
@@ -84,7 +84,7 @@
             <version>${dotenv.version}</version>
         </dependency>
 
-        <!-- Logging. Javalin 6 uses the SLF4J 2.x API, so logback must be 1.5.x;
+        <!-- Logging. Javalin 7 uses the SLF4J 2.x API, so logback must be 1.5.x;
              the old logback 1.2.x only implements the SLF4J 1.7 SPI and would
              silently bind to a no-op logger. -->
         <dependency>

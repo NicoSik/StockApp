@@ -1,4 +1,4 @@
-package stockapp.market;
+package stockapp.yahoo;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -9,6 +9,8 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -18,7 +20,8 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * Prices for everything Alpaca cannot reach: Oslo Børs, Stockholm, ETFs.
+ * Prices for everything Alpaca cannot reach: Oslo Børs, Stockholm, ETFs and
+ * Norwegian mutual funds.
  *
  * <p>Alpaca is US equities only, and matching a Norwegian portfolio against it
  * is actively dangerous - it resolves "DNB" to Dun &amp; Bradstreet and has no
@@ -28,13 +31,15 @@ import java.util.Optional;
  * <p>This is an <b>unofficial</b> endpoint. It is not a documented or supported
  * API, and it can change without notice. That is an accepted trade for a local
  * personal tool: when it breaks, holdings fall back to the value their broker
- * reported at import, which is the same path Norwegian funds already use.
+ * reported at import.
  *
  * <p>The batch quote endpoint (v7) now requires a session crumb and answers
  * {@code Unauthorized}, so quotes are fetched per symbol from the chart
  * endpoint and cached by the caller.
  */
 public final class YahooClient {
+
+    private static final Logger log = LoggerFactory.getLogger(YahooClient.class);
 
     private static final String QUOTE_HOST = "https://query1.finance.yahoo.com";
     /** Yahoo rejects requests without a browser-shaped User-Agent. */
@@ -43,15 +48,17 @@ public final class YahooClient {
 
     private final OkHttpClient http;
 
-    public YahooClient() {
-        this.http = new OkHttpClient.Builder()
+    /** @param shared the app-wide client; see {@code AlpacaClient}. */
+    public YahooClient(OkHttpClient shared) {
+        this.http = shared.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .readTimeout(Duration.ofSeconds(20))
                 .build();
     }
 
-    /** A live price in the instrument's own currency. */
     /**
+     * A live price in the instrument's own currency.
+     *
      * @param previousClose the prior session's close, for a day's change. Null
      *                      when the feed omits it, which is not the same as a
      *                      day that moved nothing.
@@ -190,7 +197,7 @@ public final class YahooClient {
             JsonElement parsed = JsonParser.parseString(text);
             return parsed.isJsonObject() ? parsed.getAsJsonObject() : null;
         } catch (IOException | RuntimeException e) {
-            System.out.println("[yahoo] request failed: " + e.getMessage());
+            log.warn("Request failed: {}", e.getMessage());
             return null;
         }
     }

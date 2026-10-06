@@ -41,6 +41,10 @@ public final class AccountRepo {
                            BigDecimal reportedTotalNok, BigDecimal reportedCostBasisNok) {
     }
 
+    /** The combined value of every real account on one date. */
+    public record ValuePoint(LocalDate date, BigDecimal value) {
+    }
+
     /**
      * A stored holding joined to the instrument it refers to.
      *
@@ -282,7 +286,7 @@ public final class AccountRepo {
      * so the last point is a snapshot total and will not exactly equal today's
      * live headline figure.
      */
-    public List<Object[]> valueHistory() {
+    public List<ValuePoint> valueHistory() {
         String sql = """
                 WITH snapshot_value AS (
                     SELECT s.id, s.account_id, s.as_of, COALESCE(sum(h.value_nok), 0) AS value
@@ -305,12 +309,12 @@ public final class AccountRepo {
                  GROUP BY point_date
                  ORDER BY point_date
                 """;
-        List<Object[]> points = new ArrayList<>();
+        List<ValuePoint> points = new ArrayList<>();
         try (Connection conn = db.connection();
              PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
-                points.add(new Object[] {rs.getDate("as_of").toLocalDate(), rs.getBigDecimal("total")});
+                points.add(new ValuePoint(rs.getDate("as_of").toLocalDate(), rs.getBigDecimal("total")));
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Could not read value history", e);

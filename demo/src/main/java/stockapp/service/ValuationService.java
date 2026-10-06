@@ -1,44 +1,27 @@
 package stockapp.service;
 
-import stockapp.market.YahooClient;
 import stockapp.repo.AccountRepo;
+import stockapp.yahoo.YahooClient;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 
 /**
- * Values every account in NOK.
+ * Values every account in NOK, without ever making a page wait on the network.
  *
- * <p>Two valuation paths, and the difference is reported rather than hidden:
- *
- * <ul>
- *   <li><b>Live</b> - the instrument has a verified symbol, so a current price
- *       is fetched and converted to NOK. Roughly two thirds of a typical
- *       Norwegian portfolio: Oslo Børs shares and US equities.</li>
- *   <li><b>As of import</b> - no free price source exists, which is the case
- *       for Norwegian mutual funds. The value the broker reported is used, and
- *       the date it came from is carried alongside it.</li>
- * </ul>
- *
- * <p>Presenting a three-week-old fund NAV as though it were current would be a
- * small lie that compounds. The split is surfaced instead, so a total reads
- * "614 696 NOK, 68% live, 32% as of 14 Aug".
+ * <p>The sums live in {@link Valuation}. This class feeds it the stored
+ * holdings and whatever prices are cached, and keeps those prices fresh in the
+ * background.
  */
 public final class ValuationService {
 
@@ -67,7 +50,7 @@ public final class ValuationService {
     /** When the last refresh finished, for the "prices from …" label. */
     private volatile Instant pricesAsOf;
 
-    private static java.util.concurrent.ThreadFactory daemon(String name) {
+    private static ThreadFactory daemon(String name) {
         return runnable -> {
             Thread thread = new Thread(runnable, name);
             thread.setDaemon(true);
@@ -82,87 +65,6 @@ public final class ValuationService {
     }
 
     /**
-     * @param dayChangeNok what this holding has made or lost today, in NOK.
-     *                     Null wherever there is no live price to compare a
-     *                     previous close against - a broker-supplied value has
-     *                     no intraday history behind it.
-     * @param leverage  above 1 for a CFD, null for an ordinary holding
-     * @param direction LONG or SHORT where the distinction exists
-     */
-    public record ValuedHolding(String symbol,
-                                String name,
-                                String kind,
-                                String currency,
-                                BigDecimal quantity,
-                                BigDecimal avgCost,
-                                BigDecimal price,
-                                BigDecimal valueNok,
-                                BigDecimal costBasisNok,
-                                BigDecimal gainNok,
-                                BigDecimal gainPercent,
-                                BigDecimal weight,
-                                BigDecimal dayChangeNok,
-                                BigDecimal dayChangePercent,
-                                boolean live,
-                                String accountName,
-                                BigDecimal leverage,
-                                String direction) {
-    }
-
-    /**
-     * @param costBasisNok      what the holdings cost, where that is known
-     * @param gainNok           value minus cost over the measurable part only,
-     *                          which is why {@link #valueNok} minus
-     *                          {@link #costBasisNok} need not equal it
-     * @param costBasisReported true when the broker stated the cost basis for
-     *                          the account as a whole instead of per holding.
-     *                          DNB's report does exactly that, so its gain is
-     *                          real but cannot be attributed to a single row.
-     */
-    public record AccountValuation(int id,
-                                   String name,
-                                   String broker,
-                                   LocalDate asOf,
-                                   BigDecimal valueNok,
-                                   BigDecimal costBasisNok,
-                                   BigDecimal gainNok,
-                                   BigDecimal gainPercent,
-                                   boolean costBasisReported,
-                                   BigDecimal dayChangeNok,
-                                   int holdingCount,
-                                   boolean simulated,
-                                   List<ValuedHolding> holdings) {
-    }
-
-    /**
-     * @param totalNok     real money only; simulated accounts are excluded
-     * @param simulatedNok practice money, reported separately so it can be shown
-     *                     without ever being added to a net worth
-     * @param pricesRefreshing a refresh is running now, so these figures are
-     *                         the previous ones and a later call will differ
-     * @param pricesAsOf   when the served prices were fetched, null before the
-     *                     first refresh has finished
-     */
-    public record Totals(BigDecimal totalNok,
-                         BigDecimal liveNok,
-                         BigDecimal asOfNok,
-                         BigDecimal livePercent,
-                         BigDecimal gainNok,
-                         BigDecimal costBasisNok,
-                         BigDecimal simulatedNok,
-                         LocalDate oldestAsOf,
-                         int accountCount,
-                         int holdingCount,
-                         List<AccountValuation> accounts,
-                         List<ValuedHolding> holdings,
-                         Map<String, BigDecimal> fxRates,
-                         BigDecimal dayChangeNok,
-                         BigDecimal dayChangeBaseNok,
-                         boolean pricesRefreshing,
-                         Instant pricesAsOf) {
-    }
-
-    /**
      * Values every account against its most recent snapshot.
      *
      * <p>This never waits on the network. Prices come from the cache whatever
@@ -171,150 +73,32 @@ public final class ValuationService {
      * took three and a half seconds, which was paid on every visit where the
      * cache had gone cold - so the page was fast only if you had just seen it.
      */
-    public Totals valueEverything() {
-        // Symbols whose cached price is missing or past its TTL.
-        Set<String> stalePrices = new LinkedHashSet<>();
-        List<AccountValuation> valued = new ArrayList<>();
-        BigDecimal total = BigDecimal.ZERO;
-        BigDecimal live = BigDecimal.ZERO;
-        BigDecimal costBasis = BigDecimal.ZERO;
-        BigDecimal measured = BigDecimal.ZERO;
-        BigDecimal simulated = BigDecimal.ZERO;
-        // Today's move, and the value it was measured over - the two must be
-        // reported together or a percentage is against the wrong denominator.
-        BigDecimal dayChange = BigDecimal.ZERO;
-        BigDecimal dayChangeBase = BigDecimal.ZERO;
-        LocalDate oldest = null;
-
+    public Valuation.Totals valueEverything() {
+        List<Valuation.AccountInput> inputs = new ArrayList<>();
         for (AccountRepo.Account account : accounts.listAccounts()) {
             Optional<AccountRepo.Snapshot> snapshot = accounts.latestSnapshot(account.id());
-            if (snapshot.isEmpty()) {
-                valued.add(new AccountValuation(account.id(), account.name(), account.broker(),
-                        null, BigDecimal.ZERO, null, null, null, false, null, 0, account.simulated(), List.of()));
-                continue;
-            }
-
-            AccountRepo.Snapshot latest = snapshot.get();
-            List<ValuedHolding> holdings = new ArrayList<>();
-            BigDecimal accountTotal = BigDecimal.ZERO;
-            BigDecimal accountCost = BigDecimal.ZERO;
-            // Value of the rows whose cost is known. Gain is measured against
-            // this, never against the account total, so a holding with no cost
-            // basis cannot masquerade as pure profit.
-            BigDecimal accountMeasured = BigDecimal.ZERO;
-            // Only the rows that actually have a previous close contribute; the
-            // rest are absent from both sides rather than counted as flat.
-            BigDecimal accountDayChange = null;
-
-            for (AccountRepo.StoredHolding stored : accounts.holdings(latest.id())) {
-                ValuedHolding holding = value(stored, account.name(), stalePrices);
-                holdings.add(holding);
-                accountTotal = accountTotal.add(holding.valueNok());
-                if (holding.costBasisNok() != null) {
-                    accountCost = accountCost.add(holding.costBasisNok());
-                    accountMeasured = accountMeasured.add(holding.valueNok());
-                }
-                // Practice money is shown but never counted, so it is excluded
-                // from every aggregate - not just the headline figure, or the
-                // live/as-of percentages would still be computed against it.
-                if (!account.simulated() && holding.live()) {
-                    live = live.add(holding.valueNok());
-                }
-                if (holding.dayChangeNok() != null) {
-                    accountDayChange = (accountDayChange == null ? BigDecimal.ZERO : accountDayChange)
-                            .add(holding.dayChangeNok());
-                    if (!account.simulated()) {
-                        dayChange = dayChange.add(holding.dayChangeNok());
-                        dayChangeBase = dayChangeBase.add(holding.valueNok());
-                    }
-                }
-            }
-
-            // DNB states Kostpris for the portfolio and nothing per row, so
-            // without this the account showed a dash where it has a real gain.
-            boolean reported = false;
-            if (accountMeasured.signum() == 0 && latest.reportedCostBasisNok() != null
-                    && latest.reportedCostBasisNok().signum() != 0) {
-                accountCost = latest.reportedCostBasisNok();
-                accountMeasured = accountTotal;
-                reported = true;
-            }
-            BigDecimal accountGain = accountMeasured.signum() == 0
-                    ? null
-                    : money(accountMeasured.subtract(accountCost));
-
-            if (account.simulated()) {
-                simulated = simulated.add(accountTotal);
-            } else {
-                total = total.add(accountTotal);
-                costBasis = costBasis.add(accountCost);
-                measured = measured.add(accountMeasured);
-                if (oldest == null || latest.asOf().isBefore(oldest)) {
-                    oldest = latest.asOf();
-                }
-            }
-            valued.add(new AccountValuation(account.id(), account.name(), account.broker(),
-                    latest.asOf(), money(accountTotal),
-                    accountGain == null ? null : money(accountCost),
-                    accountGain,
-                    accountGain == null ? null : percent(accountGain, accountCost),
-                    reported, accountDayChange, holdings.size(), account.simulated(), holdings));
+            inputs.add(new Valuation.AccountInput(account, snapshot.orElse(null),
+                    snapshot.map(s -> accounts.holdings(s.id())).orElse(List.of())));
         }
 
-        // Weights need the grand total, so they are filled in afterwards - and
-        // onto each account's own copy too, so a caller showing one account's
-        // holdings gets the same rows as the combined table rather than a
-        // parallel set that silently reads 0%.
-        BigDecimal grandTotal = money(total);
-        List<AccountValuation> weightedAccounts = new ArrayList<>(valued.size());
-        for (AccountValuation account : valued) {
-            List<ValuedHolding> holdings = new ArrayList<>(account.holdings().size());
-            for (ValuedHolding holding : account.holdings()) {
-                // Practice money is not part of the total, so it has no share
-                // of it. Null reads as "-"; zero would read as "nothing".
-                holdings.add(withWeight(holding,
-                        account.simulated() ? null : percent(holding.valueNok(), grandTotal)));
+        // Fresh or not, whatever is cached is what gets served; a price a few
+        // minutes old is a far better answer than a spinner. Anything past its
+        // TTL is noted so a refresh can be started afterwards.
+        Set<String> stalePrices = new LinkedHashSet<>();
+        Valuation.Prices cached = symbol -> {
+            YahooClient.Quote quote = priceCache.peek(symbol);
+            if (quote == null) {
+                stalePrices.add(symbol);
+                quote = priceCache.peekStale(symbol);
             }
-            weightedAccounts.add(new AccountValuation(account.id(), account.name(), account.broker(),
-                    account.asOf(), account.valueNok(), account.costBasisNok(), account.gainNok(),
-                    account.gainPercent(), account.costBasisReported(), account.dayChangeNok(),
-                    account.holdingCount(), account.simulated(), holdings));
-        }
-
-        // The combined table stays real money only, exactly as before.
-        List<ValuedHolding> weighted = weightedAccounts.stream()
-                .filter(account -> !account.simulated())
-                .flatMap(account -> account.holdings().stream())
-                .sorted(Comparator.comparing(ValuedHolding::valueNok).reversed())
-                .collect(Collectors.toCollection(ArrayList::new));
-
-        BigDecimal liveNok = money(live);
-        // Against the measured value, not the grand total: an account with no
-        // cost basis at all would otherwise report its entire value as profit.
-        BigDecimal gain = measured.signum() == 0 ? null : money(measured.subtract(costBasis));
+            return quote;
+        };
+        Valuation.Totals totals = Valuation.compute(inputs, cached, fx::toNok, fx.latestRates(), pricesAsOf);
 
         // Start the refresh only once the response is fully built, so nothing
         // above it can ever be waiting on a network call.
         boolean refreshStarted = startRefresh(stalePrices);
-
-        return new Totals(
-                grandTotal,
-                liveNok,
-                money(grandTotal.subtract(liveNok)),
-                percent(liveNok, grandTotal),
-                gain,
-                measured.signum() == 0 ? null : money(costBasis),
-                money(simulated),
-                oldest,
-                (int) weightedAccounts.stream().filter(a -> a.holdingCount() > 0 && !a.simulated()).count(),
-                weighted.size(),
-                weightedAccounts,
-                weighted,
-                fx.latestRates(),
-                dayChangeBase.signum() == 0 ? null : money(dayChange),
-                dayChangeBase.signum() == 0 ? null : money(dayChangeBase),
-                refreshStarted || refreshing.get(),
-                pricesAsOf);
+        return totals.withPricesRefreshing(refreshStarted || refreshing.get());
     }
 
     /**
@@ -366,108 +150,8 @@ public final class ValuationService {
         return true;
     }
 
-    /** The same holding with its share of the portfolio filled in. */
-    private static ValuedHolding withWeight(ValuedHolding holding, BigDecimal weight) {
-        return new ValuedHolding(holding.symbol(), holding.name(), holding.kind(), holding.currency(),
-                holding.quantity(), holding.avgCost(), holding.price(), holding.valueNok(),
-                holding.costBasisNok(), holding.gainNok(), holding.gainPercent(),
-                weight, holding.dayChangeNok(), holding.dayChangePercent(),
-                holding.live(), holding.accountName(),
-                holding.leverage(), holding.direction());
-    }
-
-    /**
-     * Values one holding, preferring a live price and falling back to the
-     * value stored at import.
-     */
-    private ValuedHolding value(AccountRepo.StoredHolding stored, String accountName,
-                                Set<String> stalePrices) {
-        BigDecimal valueNok = stored.valueNok();
-        BigDecimal price = null;
-        BigDecimal dayChange = null;
-        BigDecimal dayChangePercent = null;
-        boolean live = false;
-        // Only price instruments whose mapping was actually confirmed. An
-        // unverified guess must not be allowed to move a real number.
-        if ("YAHOO".equals(stored.priceSource()) && stored.symbol() != null && stored.verified()) {
-            // Fresh or not, whatever is cached is what gets served; a price a
-            // few minutes old is a far better answer than a spinner. Anything
-            // past its TTL is noted so a refresh can be started afterwards.
-            YahooClient.Quote quote = priceCache.peek(stored.symbol());
-            if (quote == null) {
-                stalePrices.add(stored.symbol());
-                quote = priceCache.peekStale(stored.symbol());
-            }
-            if (quote != null) {
-                BigDecimal livePrice = BigDecimal.valueOf(quote.price());
-                BigDecimal nokPrice = fx.toNok(livePrice, stored.currency());
-                if (nokPrice != null) {
-                    price = livePrice;
-                    valueNok = money(nokPrice.multiply(stored.quantity()));
-                    live = true;
-
-                    // Today's move, but only where the feed actually supplies a
-                    // previous close. A missing one is left null rather than
-                    // treated as no movement, which would read as a flat day.
-                    if (quote.previousClose() != null && quote.previousClose() > 0) {
-                        BigDecimal previous = fx.toNok(
-                                BigDecimal.valueOf(quote.previousClose()), stored.currency());
-                        if (previous != null) {
-                            BigDecimal was = money(previous.multiply(stored.quantity()));
-                            dayChange = money(valueNok.subtract(was));
-                            dayChangePercent = percent(dayChange, was);
-                        }
-                    }
-                }
-            }
-        }
-
-        BigDecimal costBasis = stored.avgCost() == null
-                ? null
-                : fx.toNok(money(stored.avgCost().multiply(stored.quantity())), stored.currency());
-        BigDecimal gain = costBasis == null ? null : money(valueNok.subtract(costBasis));
-
-        return new ValuedHolding(
-                stored.symbol(),
-                stored.name(),
-                stored.kind(),
-                stored.currency(),
-                stored.quantity().stripTrailingZeros(),
-                stored.avgCost(),
-                price,
-                money(valueNok),
-                costBasis,
-                gain,
-                gain == null ? null : percent(gain, costBasis),
-                BigDecimal.ZERO,
-                dayChange,
-                dayChangePercent,
-                live,
-                accountName,
-                stored.leverage(),
-                stored.direction());
-    }
-
     /** Combined value per snapshot date, for a history chart. */
-    public List<Map<String, Object>> history() {
-        List<Map<String, Object>> points = new ArrayList<>();
-        for (Object[] row : accounts.valueHistory()) {
-            Map<String, Object> point = new LinkedHashMap<>();
-            point.put("date", row[0].toString());
-            point.put("value", row[1]);
-            points.add(point);
-        }
-        return points;
-    }
-
-    private static BigDecimal money(BigDecimal value) {
-        return (value == null ? BigDecimal.ZERO : value).setScale(2, RoundingMode.HALF_UP);
-    }
-
-    private static BigDecimal percent(BigDecimal part, BigDecimal whole) {
-        if (whole == null || whole.signum() == 0) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-        }
-        return part.multiply(BigDecimal.valueOf(100)).divide(whole, 2, RoundingMode.HALF_UP);
+    public List<AccountRepo.ValuePoint> history() {
+        return accounts.valueHistory();
     }
 }

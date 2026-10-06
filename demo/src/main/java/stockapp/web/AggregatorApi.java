@@ -7,15 +7,16 @@ import io.javalin.config.RoutesConfig;
 import io.javalin.http.Context;
 import io.javalin.http.HttpStatus;
 import io.javalin.http.UploadedFile;
+import stockapp.Config;
 import stockapp.etoro.EtoroClient;
 import stockapp.etoro.EtoroException;
 import stockapp.importer.ImportException;
-import stockapp.market.YahooClient;
 import stockapp.repo.AccountRepo;
 import stockapp.repo.InstrumentRepo;
 import stockapp.service.EtoroSyncService;
 import stockapp.service.ImportService;
 import stockapp.service.ValuationService;
+import stockapp.yahoo.YahooClient;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -63,9 +64,6 @@ public final class AggregatorApi {
     }
 
     public void register(RoutesConfig routes) {
-        routes.exception(ImportException.class, (e, ctx) ->
-                ctx.status(HttpStatus.UNPROCESSABLE_CONTENT).json(Map.of("error", e.getMessage())));
-
         routes.get("/api/holdings", ctx -> ctx.json(valuation.valueEverything()));
         routes.get("/api/holdings/history", ctx -> ctx.json(Map.of("points", valuation.history())));
         routes.get("/api/holdings/accounts", ctx -> ctx.json(accounts.listAccounts()));
@@ -75,8 +73,6 @@ public final class AggregatorApi {
         routes.post("/api/holdings/funds/preview", this::previewFunds);
         routes.post("/api/holdings/import/commit", this::commitImport);
 
-        routes.exception(EtoroException.class, (e, ctx) ->
-                ctx.status(HttpStatus.BAD_GATEWAY).json(Map.of("error", e.getMessage())));
         routes.get("/api/holdings/etoro/status", this::etoroStatus);
         routes.post("/api/holdings/etoro/sync", this::etoroSync);
         routes.get("/api/holdings/etoro/raw", this::etoroRaw);
@@ -91,10 +87,10 @@ public final class AggregatorApi {
     private void previewImport(Context ctx) {
         UploadedFile file = ctx.uploadedFile("file");
         if (file == null) {
-            throw new Json.BadRequest("No file was uploaded.");
+            throw new BadRequest("No file was uploaded.");
         }
         if (file.size() > MAX_UPLOAD_BYTES) {
-            throw new Json.BadRequest("That file is larger than 8 MB; broker exports are a few kilobytes.");
+            throw new BadRequest("That file is larger than 8 MB; broker exports are a few kilobytes.");
         }
 
         byte[] content;
@@ -121,12 +117,12 @@ public final class AggregatorApi {
         String broker = Json.requireString(body, "broker");
 
         if (!body.has("funds") || !body.get("funds").isJsonArray()) {
-            throw new Json.BadRequest("\"funds\" must be an array.");
+            throw new BadRequest("\"funds\" must be an array.");
         }
         List<ImportService.ManualFund> funds = new ArrayList<>();
         for (JsonElement element : body.getAsJsonArray("funds")) {
             if (!element.isJsonObject()) {
-                throw new Json.BadRequest("Each fund must be an object.");
+                throw new BadRequest("Each fund must be an object.");
             }
             JsonObject fund = element.getAsJsonObject();
             funds.add(new ImportService.ManualFund(
@@ -156,7 +152,7 @@ public final class AggregatorApi {
         try {
             return new BigDecimal(raw);
         } catch (NumberFormatException e) {
-            throw new Json.BadRequest("\"" + field + "\" is not a number: " + raw);
+            throw new BadRequest("\"" + field + "\" is not a number: " + raw);
         }
     }
 
@@ -172,7 +168,7 @@ public final class AggregatorApi {
                 try {
                     overrides.put(Integer.parseInt(key), raw.get(key).getAsString());
                 } catch (NumberFormatException | UnsupportedOperationException e) {
-                    throw new Json.BadRequest("\"overrides\" keys must be row numbers.");
+                    throw new BadRequest("\"overrides\" keys must be row numbers.");
                 }
             }
         }
@@ -184,7 +180,7 @@ public final class AggregatorApi {
                 try {
                     skip.add(element.getAsInt());
                 } catch (RuntimeException e) {
-                    throw new Json.BadRequest("\"skip\" must be an array of row numbers.");
+                    throw new BadRequest("\"skip\" must be an array of row numbers.");
                 }
             }
         }
@@ -201,7 +197,7 @@ public final class AggregatorApi {
     private void etoroStatus(Context ctx) {
         Map<String, Object> status = new LinkedHashMap<>();
         status.put("configured", etoro.configured());
-        status.put("demo", stockapp.Config.ETORO_DEMO);
+        status.put("demo", Config.ETORO_DEMO);
         ctx.json(status);
     }
 
@@ -229,10 +225,10 @@ public final class AggregatorApi {
     private void etoroRaw(Context ctx) {
         String path = ctx.queryParam("path");
         if (path == null || path.isBlank()) {
-            path = "/trading/info/" + (stockapp.Config.ETORO_DEMO ? "demo" : "real") + "/aggregate-portfolio";
+            path = "/trading/info/" + (Config.ETORO_DEMO ? "demo" : "real") + "/aggregate-portfolio";
         }
         if (path.contains("://") || path.contains("..")) {
-            throw new Json.BadRequest("\"path\" must be a path on the eToro API, not a URL.");
+            throw new BadRequest("\"path\" must be a path on the eToro API, not a URL.");
         }
         ctx.contentType("application/json").result(etoroClient.raw(path));
     }

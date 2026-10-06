@@ -30,10 +30,12 @@ one to try first.
 
 ## Network exposure
 
-The app binds to localhost and has **no authentication**. That is appropriate
+The app listens on **127.0.0.1 only** and has **no authentication**. That is appropriate
 for a single-user tool on your own machine and **not** appropriate to expose to
 a network: anyone who can reach the port can trade the paper portfolio, read
-your holdings and see your watchlists.
+your holdings and see your watchlists. That is why `App` binds to the loopback
+address explicitly — Jetty's default is every interface, which on a café or
+office network would hand all of that to anyone else connected.
 
 If you ever host it, add authentication first. That also changes the risk
 calculus for anything reachable only because it is local today.

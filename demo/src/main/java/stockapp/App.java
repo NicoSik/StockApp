@@ -2,11 +2,14 @@ package stockapp;
 
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
+import okhttp3.OkHttpClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import stockapp.alpaca.AlpacaClient;
 import stockapp.etoro.EtoroClient;
 import stockapp.market.InstrumentResolver;
-import stockapp.market.YahooClient;
 import stockapp.model.Stock;
+import stockapp.norgesbank.NorgesBankClient;
 import stockapp.repo.AccountRepo;
 import stockapp.repo.AlertRepo;
 import stockapp.repo.FxRepo;
@@ -18,17 +21,22 @@ import stockapp.service.AlertService;
 import stockapp.service.EtoroSyncService;
 import stockapp.service.FxService;
 import stockapp.service.ImportService;
-import stockapp.service.Importer;
+import stockapp.service.AlpacaSync;
 import stockapp.service.MarketData;
 import stockapp.service.PortfolioService;
 import stockapp.service.Scheduler;
 import stockapp.service.ValuationService;
 import stockapp.web.AggregatorApi;
 import stockapp.web.Api;
+import stockapp.web.ErrorHandlers;
 import stockapp.web.GsonMapper;
+import stockapp.yahoo.YahooClient;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Entry point: builds the object graph, seeds first-run data, starts the server.
@@ -37,6 +45,15 @@ import java.util.List;
  * expensive happens - credentials, then the database, then the network.
  */
 public final class App {
+
+    private static final Logger log = LoggerFactory.getLogger(App.class);
+
+    /**
+     * Loopback only. The app has no authentication and serves real holdings,
+     * so it must not be reachable from the rest of the network - Jetty's
+     * default is every interface.
+     */
+    private static final String BIND_HOST = "127.0.0.1";
 
     private static final String PORTFOLIO_NAME = "Paper Portfolio";
 
@@ -47,7 +64,7 @@ public final class App {
     public static void main(String[] args) {
         banner();
         Config.validate();
-        System.out.println(Config.summary());
+        log.info("Configuration:\n{}", Config.summary());
 
         Db db = new Db();
         db.migrate();
@@ -57,21 +74,25 @@ public final class App {
         PortfolioRepo portfolios = new PortfolioRepo(db);
         AlertRepo alerts = new AlertRepo(db);
 
-        AlpacaClient alpaca = new AlpacaClient();
+        // One HTTP client for every upstream: each API client derives its own
+        // timeouts from it, but they share a connection pool and dispatcher.
+        OkHttpClient http = new OkHttpClient();
+
+        AlpacaClient alpaca = new AlpacaClient(http);
         MarketData marketData = new MarketData(alpaca, stocks);
-        Importer importer = new Importer(alpaca, stocks);
-        PortfolioService portfolio = new PortfolioService(portfolios, stocks, marketData, importer, PORTFOLIO_NAME);
+        AlpacaSync alpacaSync = new AlpacaSync(alpaca, stocks);
+        PortfolioService portfolio = new PortfolioService(portfolios, stocks, marketData, alpacaSync, PORTFOLIO_NAME);
         AlertService alertService = new AlertService(alerts, marketData);
 
         // --- Multi-broker aggregator ---------------------------------------
-        // Separate from everything above: real holdings imported from DNB and
-        // Nordnet, valued in NOK. Alpaca cannot price Oslo Børs (it resolves
+        // Separate from everything above: real holdings from DNB, Nordnet and
+        // eToro, valued in NOK. Alpaca cannot price Oslo Børs (it resolves
         // "DNB" to Dun & Bradstreet), so this half uses Yahoo and Norges Bank.
         AccountRepo accountRepo = new AccountRepo(db);
         InstrumentRepo instrumentRepo = new InstrumentRepo(db);
         FxRepo fxRepo = new FxRepo(db);
-        YahooClient yahoo = new YahooClient();
-        FxService fxService = new FxService(fxRepo);
+        YahooClient yahoo = new YahooClient(http);
+        FxService fxService = new FxService(new NorgesBankClient(http), fxRepo);
         InstrumentResolver resolver = new InstrumentResolver(yahoo);
         ImportService importService = new ImportService(accountRepo, instrumentRepo, resolver);
         ValuationService valuation = new ValuationService(accountRepo, yahoo, fxService);
@@ -79,7 +100,7 @@ public final class App {
         // eToro is the one broker here with a real personal API, so its holdings
         // arrive live rather than through a file. Optional: absent keys simply
         // hide the feature.
-        EtoroClient etoroClient = new EtoroClient();
+        EtoroClient etoroClient = new EtoroClient(http);
         EtoroSyncService etoroSync = new EtoroSyncService(etoroClient, accountRepo, instrumentRepo, fxService);
 
         portfolios.ensurePortfolio(PORTFOLIO_NAME, new BigDecimal(Config.PAPER_STARTING_CASH));
@@ -87,18 +108,18 @@ public final class App {
 
         if (Config.SYNC_ASSETS_ON_START) {
             try {
-                importer.syncAssets();
+                alpacaSync.syncAssets();
             } catch (RuntimeException e) {
-                System.out.println("[startup] asset sync skipped: " + e.getMessage());
+                log.warn("Asset sync skipped: {}", e.getMessage());
             }
         } else {
             // Locale.ROOT: the default locale groups with U+00A0, which the
             // Windows console renders as a replacement character.
-            System.out.printf(java.util.Locale.ROOT, "[startup] %,d stocks already in the database "
-                    + "(set SYNC_ASSETS_ON_START=true to refresh at boot)%n", stocks.count());
+            log.info("{} stocks already in the database (set SYNC_ASSETS_ON_START=true to refresh at boot)",
+                    String.format(Locale.ROOT, "%,d", stocks.count()));
         }
 
-        Scheduler scheduler = new Scheduler(alertService, importer, stocks, watchlists);
+        Scheduler scheduler = new Scheduler(alertService, alpacaSync, stocks, watchlists);
         scheduler.start();
 
         Api api = new Api(stocks, watchlists, alerts, marketData, portfolio, alertService, alpaca);
@@ -116,7 +137,7 @@ public final class App {
                 // after an edit, which makes a shipped change look like it never
                 // happened. There is no CDN here and the files are a few KB, so
                 // correctness beats caching.
-                staticFiles.headers = java.util.Map.of(
+                staticFiles.headers = Map.of(
                         "Cache-Control", "no-cache, must-revalidate");
             });
             // The UI is one page with a client-side router. Serving index.html
@@ -127,20 +148,21 @@ public final class App {
 
             // Javalin 7 moved routing off the Javalin instance and into the
             // config block; handlers are registered against config.routes.
+            ErrorHandlers.register(config.routes);
             aggregatorApi.register(config.routes);
             // Registered last because Api ends with a /api/* catch-all.
             api.register(config.routes);
         });
 
-        app.start(Config.SERVER_PORT);
+        app.start(BIND_HOST, Config.SERVER_PORT);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("\n[shutdown] stopping...");
+            log.info("Stopping...");
             scheduler.close();
             app.stop();
-            alpaca.shutdown();
+            shutdown(http);
             db.close();
-            System.out.println("[shutdown] done");
+            log.info("Stopped");
         }, "ticker-shutdown"));
 
         System.out.println();
@@ -168,7 +190,18 @@ public final class App {
                 added++;
             }
         }
-        System.out.printf("[startup] created starter watchlist with %d symbols%n", added);
+        log.info("Created starter watchlist with {} symbols", added);
+    }
+
+    /** Releases the shared HTTP client's threads and pooled connections. */
+    private static void shutdown(OkHttpClient http) {
+        http.dispatcher().executorService().shutdown();
+        http.connectionPool().evictAll();
+        try {
+            http.dispatcher().executorService().awaitTermination(2, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static void banner() {

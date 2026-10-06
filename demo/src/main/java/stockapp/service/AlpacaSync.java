@@ -1,5 +1,8 @@
 package stockapp.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import stockapp.alpaca.AlpacaClient;
 import stockapp.alpaca.AlpacaException;
 import stockapp.model.Candle;
@@ -21,7 +24,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * memory instead, because they are large, they go stale in seconds, and nothing
  * in the app needs them after the chart is drawn.
  */
-public final class Importer {
+public final class AlpacaSync {
+
+    private static final Logger log = LoggerFactory.getLogger(AlpacaSync.class);
 
     private final AlpacaClient alpaca;
     private final StockRepo stocks;
@@ -32,7 +37,7 @@ public final class Importer {
      */
     private final Map<String, LocalDate> coverageChecked = new ConcurrentHashMap<>();
 
-    public Importer(AlpacaClient alpaca, StockRepo stocks) {
+    public AlpacaSync(AlpacaClient alpaca, StockRepo stocks) {
         this.alpaca = alpaca;
         this.stocks = stocks;
     }
@@ -48,8 +53,8 @@ public final class Importer {
         long startedAt = System.currentTimeMillis();
         List<AlpacaClient.Asset> assets = alpaca.listAssets();
         int changed = stocks.upsertAssets(assets);
-        System.out.printf("[import] asset sync: %d assets seen, %d rows written in %.1fs%n",
-                assets.size(), changed, (System.currentTimeMillis() - startedAt) / 1000.0);
+        log.info("Asset sync: {} assets seen, {} rows written in {} ms",
+                assets.size(), changed, System.currentTimeMillis() - startedAt);
         return changed;
     }
 
@@ -99,10 +104,10 @@ public final class Importer {
                 return 0;
             }
             int written = stocks.saveDailyBars(stock.id(), bars);
-            System.out.printf("[import] %s: stored %d daily bars from %s%n", stock.symbol(), written, from);
+            log.info("{}: stored {} daily bars from {}", stock.symbol(), written, from);
             return written;
         } catch (AlpacaException e) {
-            System.out.println("[import] daily backfill failed for " + stock.symbol() + ": " + e.getMessage());
+            log.warn("Daily backfill failed for {}: {}", stock.symbol(), e.getMessage());
             return -1;
         }
     }

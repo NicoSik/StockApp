@@ -2,6 +2,8 @@ package stockapp;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
 import java.io.IOException;
@@ -25,6 +27,8 @@ import java.util.List;
  * results. Every query now borrows a connection from the pool and returns it.
  */
 public final class Db implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(Db.class);
 
     /**
      * Migrations are listed explicitly rather than discovered by scanning the
@@ -109,7 +113,7 @@ public final class Db implements AutoCloseable {
                         ps.executeUpdate();
                     }
                     conn.commit();
-                    System.out.println("[db] applied migration " + filename);
+                    log.info("Applied migration {}", filename);
                     ran++;
                 } catch (SQLException e) {
                     conn.rollback();
@@ -118,7 +122,7 @@ public final class Db implements AutoCloseable {
                     conn.setAutoCommit(true);
                 }
             }
-            System.out.printf("[db] schema up to date (%d migration(s) applied this run)%n", ran);
+            log.info("Schema up to date ({} migration(s) applied this run)", ran);
         } catch (SQLException e) {
             throw new IllegalStateException("Could not run database migrations: " + e.getMessage(), e);
         }

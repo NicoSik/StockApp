@@ -14,8 +14,11 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /** Reads and writes the {@code stock} and {@code stock_price} tables. */
@@ -40,6 +43,35 @@ public final class StockRepo {
         } catch (SQLException e) {
             throw new IllegalStateException("Lookup failed for symbol " + symbol, e);
         }
+    }
+
+    /**
+     * Several symbols in one query, keyed by upper-cased symbol. Symbols that
+     * are not in the database are simply absent from the map.
+     *
+     * <p>The watchlist rail asks for up to a hundred rows every few seconds;
+     * one round trip per symbol was a hundred queries per refresh.
+     */
+    public Map<String, Stock> findBySymbols(Collection<String> symbols) {
+        Map<String, Stock> found = new LinkedHashMap<>();
+        if (symbols.isEmpty()) {
+            return found;
+        }
+        String sql = "SELECT id, symbol, company, market FROM stock WHERE upper(symbol) = ANY(?) ORDER BY id";
+        String[] wanted = symbols.stream().map(s -> s.toUpperCase(Locale.ROOT)).distinct().toArray(String[]::new);
+        try (Connection conn = db.connection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setArray(1, conn.createArrayOf("text", wanted));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Stock stock = readStock(rs);
+                    found.putIfAbsent(stock.symbol().toUpperCase(Locale.ROOT), stock);
+                }
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Lookup failed for " + wanted.length + " symbols", e);
+        }
+        return found;
     }
 
     public Optional<Stock> findById(int id) {

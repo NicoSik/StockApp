@@ -10,6 +10,8 @@ import okhttp3.Protocol;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import stockapp.Config;
 
 import java.io.IOException;
@@ -47,12 +49,15 @@ import java.util.UUID;
  */
 public final class EtoroClient {
 
+    private static final Logger log = LoggerFactory.getLogger(EtoroClient.class);
+
     private static final String BASE_URL = "https://public-api.etoro.com/api/v1";
 
     private final OkHttpClient http;
 
-    public EtoroClient() {
-        this.http = new OkHttpClient.Builder()
+    /** @param shared the app-wide client; see {@code AlpacaClient}. */
+    public EtoroClient(OkHttpClient shared) {
+        this.http = shared.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .readTimeout(Duration.ofSeconds(30))
                 // eToro's API accepts the HTTP/2 upgrade during TLS negotiation
@@ -118,7 +123,7 @@ public final class EtoroClient {
             // Not every account has this endpoint: eToro answers 404 rather than
             // an empty portfolio. /pnl is the one that does answer, so a 404 here
             // is a routing fact, not an error worth showing anyone.
-            System.out.println("[etoro] aggregate-portfolio is not available on this account; using /pnl");
+            log.info("aggregate-portfolio is not available on this account; using /pnl");
             return pnlPortfolio(demo);
         }
     }
@@ -365,12 +370,12 @@ public final class EtoroClient {
                 // loop that carries on "just to try" costs a full read timeout per
                 // batch and makes the block worse for every later call. Names are
                 // cosmetic - abandoning them is much cheaper than that.
-                System.out.println("[etoro] instrument lookup stalled; abandoning the remaining "
-                        + (wanted.size() - from) + " id(s) rather than making it worse.");
+                log.warn("Instrument lookup stalled; abandoning the remaining {} id(s) rather than making it worse.",
+                        wanted.size() - from);
                 break;
             } catch (EtoroException e) {
                 // Names are cosmetic; a failure here must not lose the holdings.
-                System.out.println("[etoro] instrument lookup failed: " + e.getMessage());
+                log.warn("Instrument lookup failed: {}", e.getMessage());
             }
         }
         return found;
@@ -429,9 +434,9 @@ public final class EtoroClient {
             String stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
             Path file = dir.resolve(stamp + "-" + slug + ".json");
             Files.writeString(file, text, StandardCharsets.UTF_8);
-            System.out.println("[etoro] captured " + text.length() + " chars to " + file);
+            log.info("Captured {} chars to {}", text.length(), file);
         } catch (IOException | RuntimeException e) {
-            System.out.println("[etoro] could not save the capture: " + e);
+            log.warn("Could not save the capture: {}", e.toString());
         }
     }
 

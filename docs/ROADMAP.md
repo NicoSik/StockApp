@@ -5,15 +5,10 @@ complete as it stands.
 
 ## Next
 
-**Manual holdings, for funds.** The one deliberate gap in the aggregator.
-Neither DNB nor Nordnet exports Norwegian mutual funds, and no free NAV source
-exists that can be trusted to return the right share class — searching by name
-returns hedged variants, foreign domiciles and the wrong currency. So funds need
-entering by hand: name, units, value, updated when you feel like it. For a
-portfolio around a third in funds this is the largest remaining piece.
-
-**A second DNB export for funds**, if one turns out to exist. Worth checking
-before building manual entry, since it would make it unnecessary.
+**Read the ISIN from DNB's holdings workbook.** `DNBBeholdning.xlsx` carries
+an ISIN on every row, the one exact identifier any export offers, but its rows
+are still matched by name. Passing it through to the resolver would turn an
+inference into a lookup.
 
 **Live streaming instead of polling.** Alpaca has a WebSocket feed for trades
 and quotes. Replacing the 15-second poll would make prices tick in real time
@@ -74,7 +69,7 @@ without a deployment story to justify it is complexity for its own sake. If
 this is ever hosted, that decision changes first — see
 [SECURITY.md](SECURITY.md).
 
-**A front-end framework.** The client is ~1,500 lines of ES modules with no
+**A front-end framework.** The client is ~3,200 lines of ES modules with no
 build step, and it loads instantly. A framework would add a toolchain, a
 `node_modules`, and a rebuild between every edit, in exchange for conveniences
 this size of app does not need.
