@@ -6,11 +6,13 @@ shown to a person.
 
 | Status | Meaning |
 |---|---|
-| 400 | Malformed request (`Json.BadRequest`) |
-| 404 | No such symbol, watchlist or endpoint |
-| 422 | A valid order the portfolio refused — insufficient buying power or shares |
-| 502 | Alpaca is not responding |
+| 400 | Malformed request (`BadRequest`) |
+| 404 | No such symbol, watchlist or endpoint (`NotFound`) |
+| 422 | A valid request the app refused — an order without the buying power or shares, or a broker file it could not read or reconcile |
+| 502 | An upstream failed — Alpaca is not responding, or eToro rejected the keys, rate-limited or is unreachable |
 | 500 | Unexpected; details are logged server-side, not returned |
+
+Every mapping lives in `web/ErrorHandlers`.
 
 ---
 
@@ -239,6 +241,25 @@ writing anything.
 
 `status` is `CONFIRMED`, `NEEDS_REVIEW` or `UNRESOLVED`. A preview expires after
 30 minutes. 422 with an explanation for an unrecognised or unreconcilable file.
+
+### `POST /api/holdings/funds/preview`
+Hand-entered mutual funds, which neither broker's export lists. Returns the same
+preview as a file import, so funds are confirmed, re-mapped and committed through
+`/api/holdings/import/commit` like anything else.
+
+```json
+{ "accountName": "DNB Fond", "broker": "DNB",
+  "funds": [{ "name": "DNB Global Indeks A", "isin": null,
+              "units": 120.5, "valueNok": 45000, "costBasisNok": 38000 }] }
+```
+
+Send the **whole account** every time, not just a new fund: a commit replaces the
+account's snapshot, so a single fund would replace everything else in it.
+
+`isin` and `costBasisNok` are optional. `units` is what lets a fund be priced
+live — value over units is the NAV, and the NAV is what tells a fund's share
+classes apart. Without it the fund is carried at the value given. Numbers may be
+sent as strings, with a comma as the decimal separator.
 
 ### `POST /api/holdings/import/commit`
 ```json

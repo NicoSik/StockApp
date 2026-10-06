@@ -2,12 +2,12 @@
  * The multi-broker aggregator view.
  *
  * Separate from the simulated portfolio on purpose: these are real holdings
- * imported from DNB and Nordnet, valued in NOK.
+ * from DNB, Nordnet and eToro, valued in NOK.
  *
  * The screen has one job the others do not: being honest about how each number
- * was arrived at. Roughly two thirds of a Norwegian portfolio can be priced
- * live; the rest are mutual funds with no free price source, carried at the
- * value the broker last reported. That split is shown rather than blurred.
+ * was arrived at. A holding with a verified symbol is priced live; anything
+ * else is carried at the value its broker last reported, with that date shown.
+ * The split is reported rather than blurred.
  */
 
 import { api } from './api.js';

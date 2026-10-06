@@ -12,7 +12,8 @@
                                     │ fetch /api/*
                                     ▼
                     ┌──────────────────────────────────────┐
-  web               │  web/Api          routes + errors    │
+  web               │  web/Api          routes             │
+                    │  web/ErrorHandlers status codes      │
                     │  web/Json         validation         │
                     │  web/GsonMapper   Javalin ⇄ Gson     │
                     └──────────────────────────────────────┘
@@ -21,7 +22,7 @@
   services          │  MarketData      quotes, candles     │
                     │  PortfolioService valuation, history │
                     │  AlertService     threshold checks   │
-                    │  Importer         assets, daily bars │
+                    │  AlpacaSync       assets, daily bars │
                     │  Scheduler        background jobs    │
                     │  Cache            TTL map            │
                     └──────────────────────────────────────┘
@@ -40,6 +41,9 @@
    PostgreSQL (HikariCP)                                    Alpaca Markets
 ```
 
+That is the paper-trading half. The holdings half has the same layers with
+different upstreams — see [The aggregator](#the-aggregator).
+
 `App.java` builds the whole graph explicitly in `main` — no dependency
 injection container. With a dozen objects, a constructor call you can read top
 to bottom is clearer than annotations, and startup order is exactly the order
@@ -50,6 +54,22 @@ config object, not on the `Javalin` instance. There is no `app.get(...)`.
 Handlers and exception mappings are registered against `config.routes` inside
 the `Javalin.create` lambda, which is why `Api` is constructed before the server
 and takes a `RoutesConfig` rather than a `Javalin`.
+
+## Conventions
+
+- **One HTTP client.** `App` builds a single `OkHttpClient`; each upstream
+  client (`alpaca/`, `etoro/`, `yahoo/`, `norgesbank/`) derives its own
+  timeouts from it with `newBuilder()`, so they share one connection pool and
+  one dispatcher, and shutdown releases them once.
+- **One error contract.** Handlers throw `BadRequest`, `NotFound` or a domain
+  exception; `web/ErrorHandlers` is the only place that maps them to status
+  codes. See [API.md](API.md).
+- **Logging** goes through SLF4J to the console and `logs/ticker.log`, rotated
+  daily. Unexpected request errors are logged with their stack trace and never
+  returned to the browser.
+- **Loopback only.** The server binds to `127.0.0.1`. Jetty's default is every
+  interface, which for an unauthenticated app holding real account data would
+  mean anyone on the same network could read it.
 
 ## What is stored and what is not
 
@@ -164,11 +184,16 @@ endpoints, separate screen — which is what made it additive rather than a
 rewrite.
 
 ```
-importer/     NordnetParser, DnbParser, XlsxReader
-market/       YahooClient, InstrumentResolver
-service/      ImportService, ValuationService, FxService
+importer/     BrokerParser, one per format (NordnetParser, DnbParser,
+              DnbBeholdningParser), and XlsxReader
+market/       InstrumentResolver   name, ticker or ISIN -> verified symbol
+yahoo/        YahooClient          prices: Oslo, Stockholm, US, funds
+norgesbank/   NorgesBankClient     NOK exchange rates
+etoro/        EtoroClient          live eToro positions
+service/      ImportService, EtoroSyncService, FxService,
+              Valuation (the sums), ValuationService (prices and refresh)
 repo/         AccountRepo, InstrumentRepo, FxRepo
-web/          AggregatorApi   (/api/holdings/*)
+web/          AggregatorApi        /api/holdings/*
 ```
 
 ### Why Alpaca isn't used here
@@ -179,10 +204,11 @@ Bradstreet, has no entry for Norsk Hydro, and returns Equinor's NYSE ADR rather
 than the Oslo listing. Yahoo has the real Oslo and Stockholm listings in their
 own currencies. Alpaca still powers the watchlist and paper portfolio.
 
-### Identity without an ISIN
+### Identity, usually without an ISIN
 
-Neither export carries one, so identity is inferred — and inference needs a
-check. Three things make it safe:
+Nordnet's export has only a name and DNB's main report only a ticker. The one
+DNB file that carries an ISIN is not read for it yet. So identity is usually
+inferred — and inference needs a check. Three things make it safe:
 
 1. **Currency pins the exchange.** A NOK holding is on Oslo Børs, SEK is
    Stockholm. That eliminates most wrong candidates before a price is fetched.
@@ -192,6 +218,15 @@ check. Three things make it safe:
    price check trustworthy rather than merely usually right.
 3. **The export's own price is the proof.** If the resolved symbol's live price
    disagrees with the broker's, the match is refused and handed to a human.
+
+**Funds are the hard case.** Neither broker's export lists them, so they are
+entered by hand into their own accounts ("DNB Fond", "Nordnet Fond") — kept
+apart because an import replaces its account's whole snapshot, and a fund filed
+under "DNB" would vanish at the next DNB import. A search for "DNB Global
+Indeks" returns six share classes across two domiciles, scoring within a point
+of each other. Units and value settle it: their quotient is the NAV, the classes
+are nowhere near each other, and the same price check picks the right one. An
+ISIN, when the user has one, is exact and skips the search.
 
 Only a settled mapping is remembered as an alias. Caching an unverified guess
 would skip the price check on every future import — which is how a wrong match
@@ -256,7 +291,12 @@ orders and cannot describe current positions, so it is detected and rejected.
 An instrument with a verified symbol is priced live and converted at the Norges
 Bank rate. Everything else keeps the value its broker reported, with the date
 attached. The split is surfaced in the total rather than blurred, because
-presenting a three-week-old fund NAV as current is a small lie that compounds.
+presenting an old broker figure as current is a small lie that compounds.
+
+The sums live in `Valuation`, which does no I/O and is unit-tested.
+`ValuationService` feeds it whatever prices are cached, however old, and
+refreshes anything past a minute in the background — so the holdings page
+never waits on Yahoo.
 
 Norges Bank quotes SEK and DKK **per hundred**, flagged by a `UNIT_MULT`
 column. Rates are normalised to "1 unit = n NOK" on the way in; taking
@@ -269,7 +309,11 @@ from the classpath.
 
 | Module | Role |
 |---|---|
-| `app.js` | State, routing, both views, polling |
+| `app.js` | Shell: theme, routing, the watchlist rail, polling, shortcuts |
+| `state.js` | State shared by the shell and the views |
+| `detail.js` | Stock view: header, chart, session stats, trade card, alerts |
+| `portfolio.js` | Paper portfolio: value curve, positions, trade log |
+| `holdings.js` | Real holdings: totals, accounts, imports, fund entry, eToro sync |
 | `chart.js` | Canvas renderer, scrub interaction, trend colour |
 | `sparkline.js` | The 68×30 variant — no animation, no observers |
 | `api.js` | Every `fetch`; one error shape |

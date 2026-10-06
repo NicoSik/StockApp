@@ -3,8 +3,8 @@
 A stock watcher with a Robinhood-style interface: live watchlists, scrubable
 price charts, and a paper portfolio that never touches a broker.
 
-Java 17 · Javalin 7 · PostgreSQL · Alpaca market data · a vanilla-JS front end
-with no build step.
+Java 17 · Javalin 7 · PostgreSQL · Alpaca, Yahoo, Norges Bank and eToro · a
+vanilla-JS front end with no build step.
 
 ![The Ticker watchlist and stock detail view](docs/screenshots/ticker.png)
 
@@ -61,17 +61,22 @@ shares with leveraged CFDs, shorts and copy portfolios, and only the first is
 something a share price could value. Leverage and short positions are labelled
 in the table rather than shown as though they were ordinary stock.
 
-- **Live pricing where it exists.** Oslo Børs and Stockholm listings come from
-  Yahoo in their own currency; US equities from Alpaca. Norges Bank supplies the
-  NOK rates.
-- **Honest where it doesn't.** Norwegian mutual funds have no free price feed,
-  so they carry the value your broker last reported, stamped with its date. The
-  total says so: *"412 500 kr — 99.9% priced live, 600 kr as of 14 Aug"*.
-- **Matches are verified, not guessed.** Neither export carries an ISIN, so an
-  instrument is resolved from a name or ticker and then checked against the
-  price in your own file. A mismatch is refused and handed to you to fix rather
-  than quietly believed — which is what caught a Nordnet line called "AEye A"
-  resolving to AudioEye (`AEYE`) when the holding was AEye Inc (`LIDR`).
+- **Live pricing where it exists.** Shares, ETFs and Norwegian mutual funds
+  are priced from Yahoo in their own currency — Oslo Børs, Stockholm and US
+  listings alike. Norges Bank supplies the NOK rates.
+- **Funds are entered once, then priced live.** Neither export lists mutual
+  funds, so you type each one in — name, units, value, and an ISIN if you have
+  it. Units and value give the NAV, which is what picks the right share class
+  out of the half-dozen a fund search returns.
+- **Honest where it isn't.** Anything without a verified symbol carries the
+  value your broker last reported, stamped with its date. The total says so:
+  *"412 500 kr — 99.9% priced live, 600 kr as of 14 Aug"*.
+- **Matches are verified, not guessed.** The exports rarely identify an
+  instrument exactly — Nordnet's has only a name — so an instrument is resolved
+  from a name or ticker and then checked against the price in your own file. A
+  mismatch is refused and handed to you to fix rather than quietly believed —
+  which is what caught a Nordnet line called "AEye A" resolving to AudioEye
+  (`AEYE`) when the holding was AEye Inc (`LIDR`).
 - **Imports are reversible.** Each one writes a dated snapshot rather than
   editing holdings, so re-importing is safe and a value history builds up for
   free.
@@ -110,7 +115,8 @@ createdb -h localhost -p 5433 -U postgres postgres
 **3. Run**
 
 ```bash
-.\run.bat
+./run.sh          # macOS, Linux
+.\run.bat         # Windows
 ```
 
 The launcher checks your `.env`, finds a JDK 17+, verifies the port is free,
@@ -119,9 +125,10 @@ then starts the server. Open <http://localhost:9090>.
 Other ways in:
 
 ```bash
+cd demo && ./mvnw compile exec:java         # macOS, Linux, Git Bash, WSL
 cd demo && .\mvnw.cmd compile exec:java     # Windows
-cd demo && ./mvnw compile exec:java         # Git Bash, WSL, macOS, Linux
-.\run.ps1 -Package                          # build demo/target/ticker.jar
+./run.sh --package                          # build demo/target/ticker.jar
+.\run.ps1 -Package                          # the same, on Windows
 ```
 
 The first `mvnw` run downloads Apache Maven (~9 MB, SHA-512 verified) into
@@ -130,10 +137,11 @@ The first `mvnw` run downloads Apache Maven (~9 MB, SHA-512 verified) into
 ## How it fits together
 
 ```
-browser ── /api/* JSON ──▶ Javalin ──▶ services ──▶ PostgreSQL  (what you own:
-   │                                       │                     watchlists,
-   └─ static files                         └──────▶ Alpaca       trades, bars)
-      (no bundler)                                  (prices)
+browser ── /api/* JSON ──▶ Javalin ──▶ services ──┬──▶ PostgreSQL   what you own
+   │                                              ├──▶ Alpaca       US quotes and bars
+   └─ static files (no bundler)                   ├──▶ Yahoo        Oslo, Stockholm, funds
+                                                  ├──▶ Norges Bank  NOK exchange rates
+                                                  └──▶ eToro        live eToro positions
 ```
 
 - **Quotes and intraday bars** are fetched live and cached in memory for
@@ -141,8 +149,11 @@ browser ── /api/* JSON ──▶ Javalin ──▶ services ──▶ Postgr
   needs them once the chart is drawn.
 - **Daily bars** are written to `stock_price`. They power the portfolio value
   curve and act as the offline fallback when Alpaca is unreachable.
-- **Your data** — watchlists, trades, positions, alerts — lives only in your
-  database.
+- **Holdings** are stored as a dated snapshot per account. Their live prices
+  are cached for a minute and refreshed in the background, so the page never
+  waits on Yahoo.
+- **Your data** — watchlists, trades, positions, alerts, holdings — lives only
+  in your database.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full picture,
 [docs/API.md](docs/API.md) for the endpoints, and
@@ -160,13 +171,17 @@ the `MIGRATIONS` array in `Db.java`. Never edit a migration that has shipped.
 ## Tests
 
 ```bash
-cd demo && .\mvnw.cmd test
+cd demo && ./mvnw test        # .\mvnw.cmd test on Windows
 ```
 
-41 tests covering the pure logic: range parsing and lookback windows, quote
-arithmetic, sparkline downsampling, daily-job scheduling, request validation,
-and timestamp parsing. Anything needing a database or the network is exercised
-by running the app, not by a mock.
+115 tests covering the pure logic: holdings valuation, broker-file parsing,
+instrument matching, Norges Bank rate parsing, range parsing and lookback
+windows, quote arithmetic, sparkline downsampling, daily-job scheduling,
+request validation and timestamp parsing. Anything needing a database or the
+network is exercised by running the app, not by a mock.
+
+`RealExportTest` also runs the parsers against whatever real exports are in
+`imports/`, and skips itself when there are none.
 
 ## Configuration
 
@@ -176,7 +191,7 @@ See `.env.example` for the full list. Useful ones:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `SERVER_PORT` | `4567` | `.env.example` suggests `9090` |
+| `SERVER_PORT` | `9090` | |
 | `DATA_FEED` | `sip` | Falls back to `iex` automatically on a 403 |
 | `PAPER_STARTING_CASH` | `100000` | Applied only when the portfolio is created |
 | `SYNC_ASSETS_ON_START` | `false` | The full asset refresh is tens of MB |
@@ -185,9 +200,10 @@ See `.env.example` for the full list. Useful ones:
 ## Troubleshooting
 
 **`Text Blocks are only available with source level 15 and above`**
-A stale `target/` built by an older JDK. Run `cd demo && .\mvnw.cmd clean compile`.
+A stale `target/` built by an older JDK. Run `cd demo && ./mvnw clean compile`.
 If VS Code keeps recreating it, its Java extension is using an old runtime —
-`.vscode/settings.json` now pins a JDK 17+ runtime; reload the window.
+point `java.jdt.ls.java.home` in your VS Code *user* settings at a JDK 17+ and
+reload the window.
 
 **`Alpaca credentials are missing`**
 No `.env`, or `API_KEY_ID` / `API_SECRET_KEY` are empty. The app deliberately
@@ -203,13 +219,13 @@ PostgreSQL is not running, or `DB_URL` points at the wrong port. Note the
 default here is **5433**, not the usual 5432.
 
 **Port already in use**
-`run.ps1` reports which process holds it. Change `SERVER_PORT` in `.env` or stop
+The launcher reports which process holds it. Change `SERVER_PORT` in `.env` or stop
 that process.
 
 ## Security
 
 `.env` is gitignored and is the only place credentials belong. Build output and
-broker exports are not tracked. The app binds to localhost and has no
+broker exports are not tracked. The app listens on 127.0.0.1 only and has no
 authentication, which suits a single-user tool and rules out hosting it as-is.
 
 See [docs/SECURITY.md](docs/SECURITY.md).
