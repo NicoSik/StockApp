@@ -21,7 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * memory instead, because they are large, they go stale in seconds, and nothing
  * in the app needs them after the chart is drawn.
  */
-public final class Importer {
+public final class AlpacaSync {
 
     private final AlpacaClient alpaca;
     private final StockRepo stocks;
@@ -32,7 +32,7 @@ public final class Importer {
      */
     private final Map<String, LocalDate> coverageChecked = new ConcurrentHashMap<>();
 
-    public Importer(AlpacaClient alpaca, StockRepo stocks) {
+    public AlpacaSync(AlpacaClient alpaca, StockRepo stocks) {
         this.alpaca = alpaca;
         this.stocks = stocks;
     }

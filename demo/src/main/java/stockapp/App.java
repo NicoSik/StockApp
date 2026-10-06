@@ -20,7 +20,7 @@ import stockapp.service.AlertService;
 import stockapp.service.EtoroSyncService;
 import stockapp.service.FxService;
 import stockapp.service.ImportService;
-import stockapp.service.Importer;
+import stockapp.service.AlpacaSync;
 import stockapp.service.MarketData;
 import stockapp.service.PortfolioService;
 import stockapp.service.Scheduler;
@@ -73,8 +73,8 @@ public final class App {
 
         AlpacaClient alpaca = new AlpacaClient(http);
         MarketData marketData = new MarketData(alpaca, stocks);
-        Importer importer = new Importer(alpaca, stocks);
-        PortfolioService portfolio = new PortfolioService(portfolios, stocks, marketData, importer, PORTFOLIO_NAME);
+        AlpacaSync alpacaSync = new AlpacaSync(alpaca, stocks);
+        PortfolioService portfolio = new PortfolioService(portfolios, stocks, marketData, alpacaSync, PORTFOLIO_NAME);
         AlertService alertService = new AlertService(alerts, marketData);
 
         // --- Multi-broker aggregator ---------------------------------------
@@ -101,7 +101,7 @@ public final class App {
 
         if (Config.SYNC_ASSETS_ON_START) {
             try {
-                importer.syncAssets();
+                alpacaSync.syncAssets();
             } catch (RuntimeException e) {
                 System.out.println("[startup] asset sync skipped: " + e.getMessage());
             }
@@ -112,7 +112,7 @@ public final class App {
                     + "(set SYNC_ASSETS_ON_START=true to refresh at boot)%n", stocks.count());
         }
 
-        Scheduler scheduler = new Scheduler(alertService, importer, stocks, watchlists);
+        Scheduler scheduler = new Scheduler(alertService, alpacaSync, stocks, watchlists);
         scheduler.start();
 
         Api api = new Api(stocks, watchlists, alerts, marketData, portfolio, alertService, alpaca);

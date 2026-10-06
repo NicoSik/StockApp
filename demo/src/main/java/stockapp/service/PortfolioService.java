@@ -41,18 +41,18 @@ public final class PortfolioService {
     private final PortfolioRepo portfolios;
     private final StockRepo stocks;
     private final MarketData marketData;
-    private final Importer importer;
+    private final AlpacaSync alpacaSync;
     private final String portfolioName;
 
     public PortfolioService(PortfolioRepo portfolios,
                             StockRepo stocks,
                             MarketData marketData,
-                            Importer importer,
+                            AlpacaSync alpacaSync,
                             String portfolioName) {
         this.portfolios = portfolios;
         this.stocks = stocks;
         this.marketData = marketData;
-        this.importer = importer;
+        this.alpacaSync = alpacaSync;
         this.portfolioName = portfolioName;
     }
 
@@ -271,7 +271,7 @@ public final class PortfolioService {
     }
 
     private NavigableMap<LocalDate, BigDecimal> dailyCloses(int stockId, LocalDate from) {
-        stocks.findById(stockId).ifPresent(stock -> importer.ensureDailyCoverage(stock, from));
+        stocks.findById(stockId).ifPresent(stock -> alpacaSync.ensureDailyCoverage(stock, from));
         NavigableMap<LocalDate, BigDecimal> series = new TreeMap<>();
         for (Candle candle : stocks.dailyBars(stockId, from)) {
             series.put(Instant.ofEpochMilli(candle.time()).atZone(ZoneOffset.UTC).toLocalDate(),
