@@ -157,10 +157,11 @@ public final class Api {
 
         Map<String, Quote> quotes = marketData.quotes(symbols);
         Map<String, Spark> sparks = marketData.sparklines(symbols);
+        Map<String, Stock> known = stocks.findBySymbols(symbols);
 
         List<Row> rows = new ArrayList<>(symbols.size());
         for (String symbol : symbols) {
-            Stock stock = stocks.findBySymbol(symbol).orElse(null);
+            Stock stock = known.get(symbol);
             if (stock == null) {
                 continue;
             }
