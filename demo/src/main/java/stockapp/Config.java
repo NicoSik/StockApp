@@ -59,7 +59,7 @@ public final class Config {
     public static final boolean ETORO_DEMO = getBool("ETORO_DEMO", false);
 
     // --- Server -------------------------------------------------------------
-    public static final int SERVER_PORT = getInt("SERVER_PORT", 4567);
+    public static final int SERVER_PORT = getInt("SERVER_PORT", 9090);
 
     // --- Behaviour ----------------------------------------------------------
     /** Virtual starting cash for the local paper portfolio. */
