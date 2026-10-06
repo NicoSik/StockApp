@@ -54,7 +54,7 @@ if ($portLine) {
 
 # --- 2. Java ----------------------------------------------------------------
 
-# Javalin 6 is compiled for Java 17. Prefer an explicit JAVA_HOME if it is new
+# Javalin 7 is compiled for Java 17. Prefer an explicit JAVA_HOME if it is new
 # enough, otherwise find the newest JDK installed and use it for this process
 # only - changing the machine's JAVA_HOME is not this script's business.
 # Returns the major version of the JDK at $JdkPath, or 0 if it is not one.
@@ -109,7 +109,7 @@ if ($env:JAVA_HOME -and (Get-JdkVersion $env:JAVA_HOME) -ge 17) {
 
 if (-not $jdk) {
     Say '  [X]    no JDK 17 or newer found' Red
-    Say '         Javalin 6 requires Java 17+. Install a JDK, for example:' Yellow
+    Say '         Javalin 7 requires Java 17+. Install a JDK, for example:' Yellow
     Say '           winget install EclipseAdoptium.Temurin.21.JDK' DarkGray
     exit 1
 }
