@@ -1,5 +1,10 @@
 # Architecture
 
+This document explains how the pieces fit and *why* they are built this way.
+What each folder contains, and the rules for working in it, live in a
+`README.md` in that folder — start at
+[`demo/src/main/java/stockapp/README.md`](../demo/src/main/java/stockapp/README.md).
+
 ## Shape
 
 ```
@@ -184,16 +189,14 @@ endpoints, separate screen — which is what made it additive rather than a
 rewrite.
 
 ```
-importer/     BrokerParser, one per format (NordnetParser, DnbParser,
-              DnbBeholdningParser), and XlsxReader
-market/       InstrumentResolver   name, ticker or ISIN -> verified symbol
-yahoo/        YahooClient          prices: Oslo, Stockholm, US, funds
-norgesbank/   NorgesBankClient     NOK exchange rates
-etoro/        EtoroClient          live eToro positions
-service/      ImportService, EtoroSyncService, FxService,
-              Valuation (the sums), ValuationService (prices and refresh)
-repo/         AccountRepo, InstrumentRepo, FxRepo
-web/          AggregatorApi        /api/holdings/*
+importer/     broker files -> rows
+market/       rows -> verified symbols
+yahoo/        prices: Oslo, Stockholm, US, funds
+norgesbank/   NOK exchange rates
+etoro/        live eToro positions
+service/      import, eToro sync, valuation
+repo/         accounts, snapshots, instruments, rates
+web/          /api/holdings/*
 ```
 
 ### Why Alpaca isn't used here
@@ -307,20 +310,8 @@ column. Rates are normalised to "1 unit = n NOK" on the way in; taking
 No framework and no build step. The whole client is ES modules served straight
 from the classpath.
 
-| Module | Role |
-|---|---|
-| `app.js` | Shell: theme, routing, the watchlist rail, polling, shortcuts |
-| `state.js` | State shared by the shell and the views |
-| `detail.js` | Stock view: header, chart, session stats, trade card, alerts |
-| `portfolio.js` | Paper portfolio: value curve, positions, trade log |
-| `holdings.js` | Real holdings: totals, accounts, imports, fund entry, eToro sync |
-| `chart.js` | Canvas renderer, scrub interaction, trend colour |
-| `sparkline.js` | The 68×30 variant — no animation, no observers |
-| `api.js` | Every `fetch`; one error shape |
-| `palette.js` | `Ctrl-K` search with debounce and abort |
-| `format.js` | `Intl` formatters, built once at load |
-| `dom.js` | `escapeHtml` and small helpers |
-| `toast.js` | Notifications, in an aria-live region |
+The modules and the rules for working in them are in
+[`public/js/README.md`](../demo/src/main/resources/public/js/README.md).
 
 Routing uses the History API against real paths (`/AAPL`, `/portfolio`), with
 Javalin's `spaRoot` serving `index.html` for unmatched paths. A catch-all

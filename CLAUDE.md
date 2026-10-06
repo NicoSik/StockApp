@@ -11,7 +11,9 @@ A local stock app with two halves that never mix:
 Java 17 + Javalin 7, PostgreSQL, a vanilla-JS front end with no build step.
 Single user, localhost only, no authentication.
 
-Read `docs/ARCHITECTURE.md` before changing anything structural.
+Read `docs/ARCHITECTURE.md` before changing anything structural. Every code
+folder has a `README.md` with its purpose and rules — read the one for the
+folder you are working in.
 
 ## Constraints
 
