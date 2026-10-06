@@ -7,6 +7,7 @@ import stockapp.etoro.EtoroClient;
 import stockapp.market.InstrumentResolver;
 import stockapp.yahoo.YahooClient;
 import stockapp.model.Stock;
+import stockapp.norgesbank.NorgesBankClient;
 import stockapp.repo.AccountRepo;
 import stockapp.repo.AlertRepo;
 import stockapp.repo.FxRepo;
@@ -78,7 +79,7 @@ public final class App {
         InstrumentRepo instrumentRepo = new InstrumentRepo(db);
         FxRepo fxRepo = new FxRepo(db);
         YahooClient yahoo = new YahooClient();
-        FxService fxService = new FxService(fxRepo);
+        FxService fxService = new FxService(new NorgesBankClient(), fxRepo);
         InstrumentResolver resolver = new InstrumentResolver(yahoo);
         ImportService importService = new ImportService(accountRepo, instrumentRepo, resolver);
         ValuationService valuation = new ValuationService(accountRepo, yahoo, fxService);

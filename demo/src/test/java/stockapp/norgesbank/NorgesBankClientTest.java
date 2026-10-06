@@ -1,4 +1,4 @@
-package stockapp.service;
+package stockapp.norgesbank;
 
 import org.junit.jupiter.api.Test;
 
@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Norges Bank CSV parsing, and the unit-multiplier trap in particular. */
-class FxServiceTest {
+class NorgesBankClientTest {
 
     /** A verbatim response shape: semicolon-delimited, with UNIT_MULT. */
     private static final String CSV = String.join("\n",
@@ -23,7 +23,7 @@ class FxServiceTest {
 
     @Test
     void perUnitCurrenciesAreTakenAtFaceValue() {
-        Map<String, BigDecimal> rates = FxService.parse(CSV);
+        Map<String, BigDecimal> rates = NorgesBankClient.parse(CSV);
         assertEquals(0, rates.get("USD").compareTo(new BigDecimal("9.4515")));
         assertEquals(0, rates.get("EUR").compareTo(new BigDecimal("10.9325")));
     }
@@ -33,7 +33,7 @@ class FxServiceTest {
         // The whole point of this test. Norges Bank quotes SEK and DKK per 100
         // units, flagged by UNIT_MULT=2. Taking 99.4 literally would value a
         // Swedish holding at a hundred times its worth.
-        Map<String, BigDecimal> rates = FxService.parse(CSV);
+        Map<String, BigDecimal> rates = NorgesBankClient.parse(CSV);
         assertEquals(0, rates.get("SEK").compareTo(new BigDecimal("0.994")),
                 "100 SEK = 99.4 NOK, so 1 SEK = 0.994 NOK");
         assertEquals(0, rates.get("DKK").compareTo(new BigDecimal("1.4624")),
@@ -44,7 +44,7 @@ class FxServiceTest {
     void normalisedSekRateReproducesTheBrokerReportedValue() {
         // Cross-check against a real holding: 35 260 units of a SEK instrument
         // at 0,0252 is 888,552 SEK, which the broker converted to 882,93 NOK.
-        BigDecimal sek = FxService.parse(CSV).get("SEK");
+        BigDecimal sek = NorgesBankClient.parse(CSV).get("SEK");
         BigDecimal nok = new BigDecimal("888.552").multiply(sek);
         assertTrue(nok.subtract(new BigDecimal("882.93")).abs().compareTo(new BigDecimal("1.00")) < 0,
                 "expected roughly 882.93 NOK but got " + nok);
@@ -58,7 +58,7 @@ class FxServiceTest {
                 "OBS_VALUE;UNIT_MULT;BASE_CUR;QUOTE_CUR",
                 "9.4515;0;USD;NOK",
                 "99.4;2;SEK;NOK");
-        Map<String, BigDecimal> rates = FxService.parse(reordered);
+        Map<String, BigDecimal> rates = NorgesBankClient.parse(reordered);
         assertEquals(0, rates.get("USD").compareTo(new BigDecimal("9.4515")));
         assertEquals(0, rates.get("SEK").compareTo(new BigDecimal("0.994")));
     }
@@ -70,14 +70,14 @@ class FxServiceTest {
                 "USD;NOK;0;9.4515",
                 "GBP;NOK;0;not-a-number",
                 "EUR;NOK;0;10.9325");
-        Map<String, BigDecimal> rates = FxService.parse(withJunk);
+        Map<String, BigDecimal> rates = NorgesBankClient.parse(withJunk);
         assertEquals(2, rates.size());
         assertNull(rates.get("GBP"));
     }
 
     @Test
     void emptyOrHeaderOnlyInputYieldsNoRates() {
-        assertTrue(FxService.parse("").isEmpty());
-        assertTrue(FxService.parse("BASE_CUR;OBS_VALUE").isEmpty());
+        assertTrue(NorgesBankClient.parse("").isEmpty());
+        assertTrue(NorgesBankClient.parse("BASE_CUR;OBS_VALUE").isEmpty());
     }
 }
