@@ -36,11 +36,12 @@ read the one for the folder you are working in.
   codes are mapped in one place, `web/ErrorHandlers`.
 - **The server binds to 127.0.0.1.** It serves real holdings without
   authentication; it must never listen on other interfaces.
-- **Folder READMEs describe purpose and rules, not files.** A list of files is
-  stale the moment one is added. A `Stop` hook
-  (`.claude/hooks/check_folder_readmes.py`) sends you back when code in a
-  folder changed and its README did not; check it, and update it only if it is
-  no longer true.
+- **Keep folder READMEs true.** Each says what the folder is for, its rules,
+  and under "What's inside" every class or module with its main functions, one
+  short line each. A `Stop` hook (`.claude/hooks/check_folder_readmes.py`) sends
+  you back when code in a folder changed and its README did not, or when a
+  source file is not named in it. Update the README only where it is no longer
+  true.
 - **No Claude attribution** in commits or pull requests — no `Co-Authored-By`,
   no "Generated with" footer. `.claude/settings.json` turns it off.
 
