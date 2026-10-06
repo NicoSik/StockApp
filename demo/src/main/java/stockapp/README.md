@@ -23,6 +23,21 @@ tables, endpoints or screens:
 | `service/` | The logic, for both halves |
 | `web/` | HTTP routes and the error contract |
 
+## What's inside
+
+**`App`**
+- `main(args)` — validates config, migrates the database, builds every object, starts the server on 127.0.0.1.
+
+**`Config`**
+- `validate()` — refuses to start without Alpaca keys; warns on an empty DB password.
+- `summary()` — the startup configuration, with the API key masked.
+- `get(key, default)`, `getInt`, `getBool` — one setting: system property, then environment, then `.env`, then the default.
+
+**`Db`**
+- `migrate()` — applies every migration not yet recorded, each in its own transaction.
+- `connection()`, `dataSource()` — a pooled connection, or the pool itself.
+- `close()` — shuts the pool down.
+
 ## Rules
 
 - New objects are wired in `App`, in dependency order. Nothing constructs its

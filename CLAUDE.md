@@ -12,8 +12,8 @@ Java 17 + Javalin 7, PostgreSQL, a vanilla-JS front end with no build step.
 Single user, localhost only, no authentication.
 
 Read `docs/ARCHITECTURE.md` before changing anything structural. Every code
-folder has a `README.md` with its purpose and rules — read the one for the
-folder you are working in.
+folder has a `README.md` with its purpose, its rules and what is inside it —
+read the one for the folder you are working in.
 
 ## Constraints
 

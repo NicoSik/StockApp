@@ -4,6 +4,20 @@ Client for eToro's personal API, which is how eToro holdings arrive live rather
 than through an exported file. Two static keys from `.env` (`ETORO_API_KEY`,
 `ETORO_USER_KEY`); the feature hides itself when they are absent.
 
+## What's inside
+
+**`EtoroClient`**
+- `configured()` — whether both keys are set.
+- `portfolio(demo)` — positions and account totals; falls back to `pnlPortfolio` on accounts without `aggregate-portfolio`.
+- `pnlPortfolio(demo)` — the same portfolio rebuilt from `/pnl`.
+- `parsePnl(json)` — the `/pnl` mapping on its own, so it can be tested on a saved response.
+- `instruments(ids)` — names and tickers for eToro's numeric instrument ids.
+- `raw(path)` — an untouched response, for debugging a shape the client doesn't expect.
+- `Portfolio`, `Position`, `Totals`, `InstrumentInfo` — what those calls return. A `Position` carries its leverage and direction.
+
+**`EtoroException`** — a rejected or failed request, with the HTTP status (0 when nothing came back).
+**`EtoroStalledException`** — the connection opened and then sent nothing.
+
 ## Not here
 
 - Pricing. eToro positions are **never re-priced**. An account can mix shares,

@@ -3,6 +3,12 @@
 Exchange rates against NOK from Norges Bank's SDMX API. Free, no key, and the
 authoritative source for a Norwegian portfolio.
 
+## What's inside
+
+**`NorgesBankClient`**
+- `latest(currencies)` — the latest published rate for each currency, as NOK per one unit.
+- `parse(csv)` — reads the CSV response and applies `UNIT_MULT`.
+
 ## Not here
 
 - Caching, storing rates or converting amounts — that is `service/FxService`,

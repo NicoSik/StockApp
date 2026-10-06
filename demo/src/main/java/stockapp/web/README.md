@@ -4,6 +4,15 @@ HTTP routes and the error contract. `Api` serves the paper-trading half under
 `/api/*`; `AggregatorApi` serves holdings under `/api/holdings/*`. Every
 endpoint is documented in `docs/API.md`.
 
+## What's inside
+
+- **`Api`** — `register(routes)`: health, search, quotes, rail rows, charts, watchlists, the paper portfolio and alerts, ending with the JSON 404 catch-all.
+- **`AggregatorApi`** — `register(routes)`: holdings, history, file imports, fund entry, eToro sync and symbol lookup.
+- **`ErrorHandlers`** — `register(routes)`: every exception to a status code and `{"error": …}`.
+- **`Json`** — `parseObject(body)`, `requireString`, `optString`, `requirePositiveDecimal`, `requireOneOf`; `write(value)` for responses.
+- **`GsonMapper`** — makes Javalin's `ctx.json()` use Gson.
+- **`BadRequest`**, **`NotFound`** — throw these for 400 and 404.
+
 ## Not here
 
 - Logic. A handler validates input, calls a service, and returns its result.

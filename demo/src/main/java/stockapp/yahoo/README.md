@@ -4,6 +4,14 @@ Prices for every holding: Oslo Børs, Stockholm and US listings, ETFs, and
 Norwegian mutual funds, each in its own currency. Also symbol search, used by
 the resolver and the reconcile screen.
 
+## What's inside
+
+**`YahooClient`**
+- `quote(symbol)` — live price, currency and previous close; empty when Yahoo has nothing.
+- `search(query)` — candidate symbols for a name, ticker or ISIN.
+- `suffixForCurrency(currency)` — the exchange suffix a currency implies: `.OL` for NOK, `.ST` for SEK, `.CO` for DKK, none otherwise.
+- `Quote`, `Match` — a price, and one search candidate.
+
 ## Not here
 
 - Deciding *which* symbol a holding is. That is `market/InstrumentResolver`;

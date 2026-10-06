@@ -18,6 +18,21 @@ build step. Edit a file, reload the page.
 | `dom.js` | `escapeHtml`, the error panel and small helpers |
 | `toast.js` | Notifications, in an `aria-live` region |
 
+## Exports
+
+- **`app.js`** — nothing; it starts the app on load.
+- **`detail.js`** — `renderDetailView(main, symbol, hooks)`, `selectRange(symbol, range)`, `applyLiveQuote(quote)`.
+- **`portfolio.js`** — `renderPortfolioView(main, { navigate })`.
+- **`holdings.js`** — `renderHoldingsView(main)`, `teardownHoldingsChart()`.
+- **`state.js`** — `state`, `RANGES`, `safeStore(key, value)`.
+- **`chart.js`** — `Chart`: `setData({ points, baseline, range })`, `destroy()`; scrubbing reports through `onScrub`.
+- **`sparkline.js`** — `drawSparkline(canvas, points, baseline)`.
+- **`api.js`** — `api`, one method per endpoint (`rows`, `candles`, `order`, `holdings`, `previewImport`, …), and `ApiError`.
+- **`palette.js`** — `SearchPalette`: `open()`, `close()`, `toggle()`.
+- **`format.js`** — `usd`, `usdCompact`, `signedUsd`, `price`, `percent`, `signedPercent`, `shares`, `abbreviate`, `dateTime`, `axisLabel`, `tooltipLabel`, `direction`, `arrow`, and `EMPTY` for a missing value.
+- **`dom.js`** — `escapeHtml`, `qs`, `qsa`, `setHtml`, `setText`, `setDirectionClass`, `errorPanel`.
+- **`toast.js`** — `toast(message, tone)`.
+
 ## Rules
 
 - **One module per screen.** `app.js` routes and polls; it does not render a
