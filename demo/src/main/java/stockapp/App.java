@@ -38,6 +38,13 @@ import java.util.List;
  */
 public final class App {
 
+    /**
+     * Loopback only. The app has no authentication and serves real holdings,
+     * so it must not be reachable from the rest of the network - Jetty's
+     * default is every interface.
+     */
+    private static final String BIND_HOST = "127.0.0.1";
+
     private static final String PORTFOLIO_NAME = "Paper Portfolio";
 
     /** Seeded on first run so a fresh install opens on something, not a blank page. */
@@ -132,7 +139,7 @@ public final class App {
             api.register(config.routes);
         });
 
-        app.start(Config.SERVER_PORT);
+        app.start(BIND_HOST, Config.SERVER_PORT);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("\n[shutdown] stopping...");
