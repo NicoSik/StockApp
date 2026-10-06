@@ -40,3 +40,19 @@ export function setDirectionClass(element, direction) {
     element.classList.remove('up', 'down', 'flat');
     element.classList.add(direction);
 }
+
+/**
+ * The panel a view shows when its data could not be loaded.
+ *
+ * A 404 gets its own wording, because "not in the database" is something the
+ * user can act on and "something went wrong" is not.
+ */
+export function errorPanel(error, symbol) {
+    const notFound = error?.status === 404;
+    return `
+    <div class="empty">
+        <p class="empty__title">${notFound ? `${escapeHtml(symbol)} is not in the database` : 'Something went wrong'}</p>
+        <p class="note">${escapeHtml(error.message)}</p>
+        ${notFound ? '<p class="note">Try searching for the company name instead.</p>' : ''}
+    </div>`;
+}
