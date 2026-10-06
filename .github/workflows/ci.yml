@@ -1,0 +1,43 @@
+# Runs the test suite on every push to main and on every pull request.
+#
+# JDK 17 is the oldest the app supports (Javalin 7 is compiled for it); 21 is
+# what development uses. Testing both catches an API that only exists in 21.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (JDK ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ["17", "21"]
+    defaults:
+      run:
+        working-directory: demo
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+          cache-dependency-path: demo/pom.xml
+
+      - name: Run the tests
+        run: ./mvnw -B -ntp test

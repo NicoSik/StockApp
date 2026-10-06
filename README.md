@@ -174,11 +174,18 @@ the `MIGRATIONS` array in `Db.java`. Never edit a migration that has shipped.
 cd demo && ./mvnw test        # .\mvnw.cmd test on Windows
 ```
 
-115 tests covering the pure logic: holdings valuation, broker-file parsing,
+The tests cover the pure logic: holdings valuation, broker-file parsing,
 instrument matching, Norges Bank rate parsing, range parsing and lookback
 windows, quote arithmetic, sparkline downsampling, daily-job scheduling,
 request validation and timestamp parsing. Anything needing a database or the
 network is exercised by running the app, not by a mock.
+
+Two tests guard the docs and the schema against drift: `ApiDocsTest` fails
+when `docs/API.md` and the registered routes disagree, and `MigrationsTest`
+fails when a migration file is missing from `Db.MIGRATIONS`.
+
+GitHub Actions runs the suite on every push to `main` and every pull request,
+on JDK 17 and 21 (`.github/workflows/ci.yml`).
 
 `RealExportTest` also runs the parsers against whatever real exports are in
 `imports/`, and skips itself when there are none.

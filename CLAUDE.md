@@ -63,7 +63,7 @@ colour-blind safety, and information density in the stat rail. The rules are in
 
 ## Definition of done
 
-1. `cd demo && ./mvnw clean test` passes.
+1. `cd demo && ./mvnw clean test` passes, and so does CI on the pull request.
 2. The app starts and the affected screen has been driven in a browser.
 3. No console errors; no horizontal page scroll at 375 px wide.
 4. Correct in light and dark, and while the market is closed.
