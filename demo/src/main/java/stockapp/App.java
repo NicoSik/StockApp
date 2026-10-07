@@ -12,6 +12,7 @@ import stockapp.model.Stock;
 import stockapp.norgesbank.NorgesBankClient;
 import stockapp.repo.AccountRepo;
 import stockapp.repo.AlertRepo;
+import stockapp.repo.ClosingPriceRepo;
 import stockapp.repo.FxRepo;
 import stockapp.repo.InstrumentRepo;
 import stockapp.repo.PortfolioRepo;
@@ -20,6 +21,7 @@ import stockapp.repo.WatchlistRepo;
 import stockapp.service.AlertService;
 import stockapp.service.EtoroSyncService;
 import stockapp.service.FxService;
+import stockapp.service.HoldingsHistorySync;
 import stockapp.service.ImportService;
 import stockapp.service.AlpacaSync;
 import stockapp.service.MarketData;
@@ -91,11 +93,14 @@ public final class App {
         AccountRepo accountRepo = new AccountRepo(db);
         InstrumentRepo instrumentRepo = new InstrumentRepo(db);
         FxRepo fxRepo = new FxRepo(db);
+        ClosingPriceRepo closingPrices = new ClosingPriceRepo(db);
         YahooClient yahoo = new YahooClient(http);
         FxService fxService = new FxService(new NorgesBankClient(http), fxRepo);
         InstrumentResolver resolver = new InstrumentResolver(yahoo);
         ImportService importService = new ImportService(accountRepo, instrumentRepo, resolver);
-        ValuationService valuation = new ValuationService(accountRepo, yahoo, fxService);
+        ValuationService valuation = new ValuationService(accountRepo, closingPrices, yahoo, fxService);
+        // Fills in the closes and rates the value history is computed from.
+        HoldingsHistorySync historySync = new HoldingsHistorySync(accountRepo, closingPrices, yahoo, fxService);
 
         // eToro is the one broker here with a real personal API, so its holdings
         // arrive live rather than through a file. Optional: absent keys simply
@@ -121,10 +126,11 @@ public final class App {
 
         Scheduler scheduler = new Scheduler(alertService, alpacaSync, stocks, watchlists);
         scheduler.start();
+        historySync.refreshInBackground();
 
         Api api = new Api(stocks, watchlists, alerts, marketData, portfolio, alertService, alpaca);
         AggregatorApi aggregatorApi = new AggregatorApi(
-                accountRepo, instrumentRepo, importService, valuation, yahoo, etoroSync, etoroClient);
+                accountRepo, instrumentRepo, importService, valuation, historySync, yahoo, etoroSync, etoroClient);
 
         Javalin app = Javalin.create(config -> {
             config.jsonMapper(new GsonMapper());

@@ -126,13 +126,14 @@ function markup(data, history, etoro) {
                 <div class="chart__tooltip" id="h-tooltip" aria-hidden="true"></div>
                 <div class="chart__price-tag" id="h-price-tag" aria-hidden="true"></div>
                 <div class="chart__empty" id="h-chart-empty"${history.points?.length > 1 ? ' hidden' : ''}>
-                    ${history.points?.length > 1 ? '' : 'Your value chart builds up as you import over time — one point per import.'}
+                    ${history.points?.length > 1 ? '' : 'Your value chart starts at your first import and fills in as prices are fetched.'}
                 </div>
             </div>
             ${history.points?.length > 1 ? `
                 <p class="note" style="margin-top:var(--space-2)">
-                    One point per import, at the value your broker reported that day — so the
-                    latest point will not match the live figure above exactly.
+                    Each day values your latest import at that day's closing price. Trades made
+                    between imports show up at the next import or eToro sync, and anything
+                    without a market price stays at the value your broker reported.
                 </p>` : ''}
 
 
@@ -501,16 +502,13 @@ function emptyState() {
 // ===================================================================== chart
 
 /**
- * Plots combined value per snapshot date.
- *
- * <p>Two points are enough for a line, and two points is what you have after a
- * second import - so the chart earns its place immediately rather than after
- * weeks of history.
+ * Plots the combined value on each day since the first import, as the server
+ * rebuilds it from daily closes.
  */
 function mountChart(data, history) {
     const canvas = qs('#h-canvas');
     const points = (history.points ?? [])
-        // Anchored to midday UTC, not midnight. A snapshot carries a calendar
+        // Anchored to midday UTC, not midnight. Each point carries a calendar
         // date, but the chart's labels are formatted in market time - and
         // "2026-08-11" parsed as UTC midnight is the evening of the 10th in New
         // York, so every point would display a day early. Midday leaves no
@@ -633,8 +631,8 @@ let refreshAttempts = 0;
  * Re-fetches while the server says prices are still being refreshed.
  *
  * <p>Only the figures are replaced - the chart is left untouched, because it
- * plots snapshot history and no live price can move it. Rebuilding it would
- * throw away the crosshair and any scrub in progress for no reason.
+ * plots daily closes and a live price refresh does not change them. Rebuilding
+ * it would throw away the crosshair and any scrub in progress for no reason.
  */
 function schedulePriceRefresh(data) {
     clearTimeout(refreshTimer);

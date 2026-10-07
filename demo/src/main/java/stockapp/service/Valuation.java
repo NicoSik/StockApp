@@ -9,7 +9,11 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.NavigableMap;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 import static stockapp.model.Money.money;
@@ -62,6 +66,14 @@ public final class Valuation {
     record AccountInput(AccountRepo.Account account,
                         AccountRepo.Snapshot snapshot,
                         List<AccountRepo.StoredHolding> holdings) {
+    }
+
+    /** One account with every snapshot it has, in any order. */
+    record AccountHistory(AccountRepo.Account account, List<DatedHoldings> snapshots) {
+    }
+
+    /** The holdings of one snapshot, and the date it describes. */
+    record DatedHoldings(LocalDate asOf, List<AccountRepo.StoredHolding> holdings) {
     }
 
     /**
@@ -277,6 +289,100 @@ public final class Valuation {
                 pricesAsOf);
     }
 
+    /**
+     * The combined value of every real account on each day, from the first
+     * import to {@code today}.
+     *
+     * <p>Each day takes the snapshot in force for each account - its latest one
+     * on or before that day - and values every holding exactly as {@link #value}
+     * does live, but at that day's close and exchange rate. A missing close or
+     * rate carries the last one forward; before the first close, and for
+     * anything without a price, the value the broker reported stands.
+     *
+     * <p>The days are every import date, every date with a close, and today. So
+     * weekends and holidays drop out, and a portfolio of unpriced funds still
+     * reaches today as a flat line instead of stopping at its import.
+     *
+     * @param closes per symbol, the closing price on each trading day
+     * @param rates  per currency, NOK per one unit on each business day
+     */
+    static List<AccountRepo.ValuePoint> history(List<AccountHistory> accounts,
+                                               Map<String, NavigableMap<LocalDate, BigDecimal>> closes,
+                                               Map<String, NavigableMap<LocalDate, BigDecimal>> rates,
+                                               LocalDate today) {
+        List<NavigableMap<LocalDate, List<AccountRepo.StoredHolding>>> timelines = new ArrayList<>();
+        TreeSet<LocalDate> days = new TreeSet<>();
+        for (AccountHistory account : accounts) {
+            // Practice money has no business in a net-worth history.
+            if (account.account().simulated() || account.snapshots().isEmpty()) {
+                continue;
+            }
+            NavigableMap<LocalDate, List<AccountRepo.StoredHolding>> timeline = new TreeMap<>();
+            for (DatedHoldings snapshot : account.snapshots()) {
+                timeline.put(snapshot.asOf(), snapshot.holdings());
+            }
+            timelines.add(timeline);
+            days.addAll(timeline.keySet());
+        }
+        if (days.isEmpty()) {
+            return List.of();
+        }
+
+        LocalDate first = days.first();
+        if (!today.isBefore(first)) {
+            for (NavigableMap<LocalDate, BigDecimal> series : closes.values()) {
+                days.addAll(series.subMap(first, true, today, true).keySet());
+            }
+            days.add(today);
+        }
+
+        List<AccountRepo.ValuePoint> points = new ArrayList<>(days.size());
+        for (LocalDate day : days) {
+            Prices prices = symbol -> {
+                BigDecimal close = onOrBefore(closes.get(symbol), day);
+                return close == null ? null : new YahooClient.Quote(symbol, close.doubleValue(), "", "", 0L, null);
+            };
+            Fx fx = (amount, currency) -> {
+                if (currency == null || currency.isBlank() || currency.equalsIgnoreCase("NOK")) {
+                    return amount;
+                }
+                BigDecimal rate = onOrBefore(rates.get(currency.toUpperCase(Locale.ROOT)), day);
+                return rate == null ? null : money(amount.multiply(rate));
+            };
+
+            BigDecimal total = BigDecimal.ZERO;
+            for (NavigableMap<LocalDate, List<AccountRepo.StoredHolding>> timeline : timelines) {
+                Map.Entry<LocalDate, List<AccountRepo.StoredHolding>> inForce = timeline.floorEntry(day);
+                if (inForce == null) {
+                    continue;  // not imported yet on this day
+                }
+                for (AccountRepo.StoredHolding holding : inForce.getValue()) {
+                    total = total.add(value(holding, null, prices, fx).valueNok());
+                }
+            }
+            points.add(new AccountRepo.ValuePoint(day, money(total)));
+        }
+        return points;
+    }
+
+    /**
+     * Whether a holding is valued from a market price at all. Only instruments
+     * whose mapping was actually confirmed: an unverified guess must not be
+     * allowed to move a real number.
+     */
+    static boolean isPriceable(AccountRepo.StoredHolding holding) {
+        return "YAHOO".equals(holding.priceSource()) && holding.symbol() != null && holding.verified();
+    }
+
+    /** The last value on or before {@code day}, or null when there is none. */
+    private static BigDecimal onOrBefore(NavigableMap<LocalDate, BigDecimal> series, LocalDate day) {
+        if (series == null) {
+            return null;
+        }
+        Map.Entry<LocalDate, BigDecimal> entry = series.floorEntry(day);
+        return entry == null ? null : entry.getValue();
+    }
+
     private static AccountTally valueAccount(AccountInput input, Prices prices, Fx fx) {
         AccountRepo.Account account = input.account();
         AccountRepo.Snapshot latest = input.snapshot();
@@ -348,9 +454,7 @@ public final class Valuation {
         BigDecimal dayChange = null;
         BigDecimal dayChangePercent = null;
         boolean live = false;
-        // Only price instruments whose mapping was actually confirmed. An
-        // unverified guess must not be allowed to move a real number.
-        if ("YAHOO".equals(stored.priceSource()) && stored.symbol() != null && stored.verified()) {
+        if (isPriceable(stored)) {
             YahooClient.Quote quote = prices.quote(stored.symbol());
             if (quote != null) {
                 BigDecimal livePrice = BigDecimal.valueOf(quote.price());

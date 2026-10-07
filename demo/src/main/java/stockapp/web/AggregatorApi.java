@@ -14,6 +14,7 @@ import stockapp.importer.ImportException;
 import stockapp.repo.AccountRepo;
 import stockapp.repo.InstrumentRepo;
 import stockapp.service.EtoroSyncService;
+import stockapp.service.HoldingsHistorySync;
 import stockapp.service.ImportService;
 import stockapp.service.ValuationService;
 import stockapp.yahoo.YahooClient;
@@ -43,6 +44,7 @@ public final class AggregatorApi {
     private final InstrumentRepo instruments;
     private final ImportService imports;
     private final ValuationService valuation;
+    private final HoldingsHistorySync historySync;
     private final YahooClient yahoo;
     private final EtoroSyncService etoro;
     private final EtoroClient etoroClient;
@@ -51,6 +53,7 @@ public final class AggregatorApi {
                          InstrumentRepo instruments,
                          ImportService imports,
                          ValuationService valuation,
+                         HoldingsHistorySync historySync,
                          YahooClient yahoo,
                          EtoroSyncService etoro,
                          EtoroClient etoroClient) {
@@ -58,6 +61,7 @@ public final class AggregatorApi {
         this.instruments = instruments;
         this.imports = imports;
         this.valuation = valuation;
+        this.historySync = historySync;
         this.yahoo = yahoo;
         this.etoro = etoro;
         this.etoroClient = etoroClient;
@@ -186,6 +190,8 @@ public final class AggregatorApi {
         }
 
         ImportService.Result result = imports.commit(previewId, overrides, skip);
+        // A new snapshot can bring symbols the history has no closes for yet.
+        historySync.refreshInBackground();
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("result", result);
         response.put("holdings", valuation.valueEverything());
@@ -210,6 +216,7 @@ public final class AggregatorApi {
         }
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("result", etoro.sync());
+        historySync.refreshInBackground();
         response.put("holdings", valuation.valueEverything());
         ctx.status(HttpStatus.CREATED).json(response);
     }

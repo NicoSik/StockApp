@@ -221,7 +221,11 @@ appears in `accounts` so it can be displayed and labelled.
 ```json
 { "points": [{ "date": "2026-08-14", "value": 411950.20 }] }
 ```
-One point per snapshot date, summed across accounts.
+The combined value of every real account on each trading day, from the first
+import to today. Each day values the snapshot in force that day at that day's
+close and exchange rate; anything without a price keeps its reported value.
+Reads only stored closes and rates, so it never waits on the network; a
+background job keeps them current. Simulated accounts are excluded.
 
 ### `POST /api/holdings/import/preview`
 `multipart/form-data` with a `file` part. Max 8 MB. Parses and resolves without

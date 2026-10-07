@@ -1,10 +1,12 @@
 package stockapp.service;
 
 import stockapp.repo.AccountRepo;
+import stockapp.repo.ClosingPriceRepo;
 import stockapp.yahoo.YahooClient;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -32,6 +34,7 @@ public final class ValuationService {
     private static final Duration PRICE_TTL = Duration.ofMinutes(1);
 
     private final AccountRepo accounts;
+    private final ClosingPriceRepo closingPrices;
     private final YahooClient yahoo;
     private final FxService fx;
     private final Cache<String, YahooClient.Quote> priceCache = new Cache<>();
@@ -58,8 +61,10 @@ public final class ValuationService {
         };
     }
 
-    public ValuationService(AccountRepo accounts, YahooClient yahoo, FxService fx) {
+    public ValuationService(AccountRepo accounts, ClosingPriceRepo closingPrices, YahooClient yahoo,
+                            FxService fx) {
         this.accounts = accounts;
+        this.closingPrices = closingPrices;
         this.yahoo = yahoo;
         this.fx = fx;
     }
@@ -150,8 +155,32 @@ public final class ValuationService {
         return true;
     }
 
-    /** Combined value per snapshot date, for a history chart. */
+    /**
+     * The combined value of every real account on each day since the first
+     * import, for the history chart. Reads only the database: the closes and
+     * rates it uses are fetched in the background by {@link HoldingsHistorySync}.
+     */
     public List<AccountRepo.ValuePoint> history() {
-        return accounts.valueHistory();
+        List<Valuation.AccountHistory> histories = HoldingsHistorySync.load(accounts);
+        Set<String> symbols = new LinkedHashSet<>();
+        LocalDate first = null;
+        for (Valuation.AccountHistory history : histories) {
+            for (Valuation.DatedHoldings snapshot : history.snapshots()) {
+                if (first == null || snapshot.asOf().isBefore(first)) {
+                    first = snapshot.asOf();
+                }
+                for (AccountRepo.StoredHolding holding : snapshot.holdings()) {
+                    if (Valuation.isPriceable(holding)) {
+                        symbols.add(holding.symbol());
+                    }
+                }
+            }
+        }
+        if (first == null) {
+            return List.of();
+        }
+        LocalDate from = first.minusDays(HoldingsHistorySync.LEAD_DAYS);
+        return Valuation.history(histories, closingPrices.closes(symbols, from), fx.rateHistory(from),
+                LocalDate.now());
     }
 }

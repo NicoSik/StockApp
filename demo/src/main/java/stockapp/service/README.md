@@ -20,9 +20,10 @@ Paper trading:
 Holdings:
 - **`ImportService`** — `preview(filename, bytes)` parses and resolves without writing; `previewFunds(account, broker, funds)` does the same for hand-entered funds; `commit(previewId, overrides, skip)` writes the snapshot and remembers settled matches. `aliasKeys(isin, ticker, name)` is the order a row's labels are remembered and looked up in.
 - **`EtoroSyncService`** — `sync()` writes the live eToro portfolio as a snapshot; `configured()`.
-- **`FxService`** — `toNok(amount, currency)`, `rate(currency)`, `latestRates()` (cached for an hour, stored rates as fallback).
-- **`Valuation`** — `compute(…)` produces every figure on the holdings page; `value(holding, …)` values one holding, live or as reported. No I/O; tested.
-- **`ValuationService`** — `valueEverything()` feeds `Valuation` the cached prices and starts a background refresh; `history()`.
+- **`FxService`** — `toNok(amount, currency)`, `rate(currency)`, `latestRates()` (cached for an hour, stored rates as fallback); `rateHistory(from)` reads stored dated rates, `fetchRateHistory(…)` fetches and stores them.
+- **`Valuation`** — `compute(…)` produces every figure on the holdings page; `value(holding, …)` values one holding, live or as reported; `history(…)` values every day since the first import at that day's close and rate; `isPriceable(holding)` says which holdings get a market price. No I/O; tested.
+- **`ValuationService`** — `valueEverything()` feeds `Valuation` the cached prices and starts a background refresh; `history()` feeds it stored closes and rates.
+- **`HoldingsHistorySync`** — `refreshInBackground()` / `refresh()` fetch the closes and rates the history is missing; `missing(need, stored, today)` decides which date ranges those are.
 
 Shared:
 - **`Cache`** — a small TTL map: `get(key, ttl, loader)`, `peek`, `peekStale`, `put`, `invalidate`.

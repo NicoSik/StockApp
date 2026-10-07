@@ -209,6 +209,28 @@ public final class AccountRepo {
         }
     }
 
+    /** Every snapshot of one account, oldest first. */
+    public List<Snapshot> snapshots(int accountId) {
+        String sql = """
+                SELECT id, account_id, as_of, source_file, reported_total_nok, reported_cost_basis_nok
+                  FROM snapshot WHERE account_id = ?
+                 ORDER BY as_of, id
+                """;
+        List<Snapshot> snapshots = new ArrayList<>();
+        try (Connection conn = db.connection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, accountId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    snapshots.add(readSnapshot(rs));
+                }
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Could not read snapshots", e);
+        }
+        return snapshots;
+    }
+
     public Optional<Snapshot> latestSnapshot(int accountId) {
         String sql = """
                 SELECT id, account_id, as_of, source_file, reported_total_nok, reported_cost_basis_nok
@@ -222,14 +244,18 @@ public final class AccountRepo {
                 if (!rs.next()) {
                     return Optional.empty();
                 }
-                return Optional.of(new Snapshot(rs.getInt("id"), rs.getInt("account_id"),
-                        rs.getDate("as_of").toLocalDate(), rs.getString("source_file"),
-                        rs.getBigDecimal("reported_total_nok"),
-                        rs.getBigDecimal("reported_cost_basis_nok")));
+                return Optional.of(readSnapshot(rs));
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Could not read the latest snapshot", e);
         }
+    }
+
+    private static Snapshot readSnapshot(ResultSet rs) throws SQLException {
+        return new Snapshot(rs.getInt("id"), rs.getInt("account_id"),
+                rs.getDate("as_of").toLocalDate(), rs.getString("source_file"),
+                rs.getBigDecimal("reported_total_nok"),
+                rs.getBigDecimal("reported_cost_basis_nok"));
     }
 
     public List<StoredHolding> holdings(int snapshotId) {
@@ -266,59 +292,5 @@ public final class AccountRepo {
             throw new IllegalStateException("Could not read holdings", e);
         }
         return holdings;
-    }
-
-    /**
-     * Combined value per date, for the value-over-time chart.
-     *
-     * <p>Each point sums every account's most recent snapshot <em>on or before</em>
-     * that date, rather than only the snapshots written on it. Grouping by date
-     * alone plotted whichever accounts happened to be imported that day: a day
-     * when only DNB was re-imported showed DNB's value as the whole portfolio,
-     * and the first eToro sync made the line fall from six figures to five while
-     * the money it omitted was still sitting there. Every account a person still
-     * holds is carried forward until it is imported again.
-     *
-     * <p>Simulated accounts are excluded here as everywhere else - practice
-     * money has no business in a net-worth history.
-     *
-     * <p>These are the values the brokers reported at import, not live prices,
-     * so the last point is a snapshot total and will not exactly equal today's
-     * live headline figure.
-     */
-    public List<ValuePoint> valueHistory() {
-        String sql = """
-                WITH snapshot_value AS (
-                    SELECT s.id, s.account_id, s.as_of, COALESCE(sum(h.value_nok), 0) AS value
-                      FROM snapshot s
-                      JOIN account a ON a.id = s.account_id AND a.simulated = false
-                      LEFT JOIN holding h ON h.snapshot_id = s.id
-                     GROUP BY s.id, s.account_id, s.as_of
-                ),
-                points AS (SELECT DISTINCT as_of FROM snapshot_value),
-                carried AS (
-                    SELECT p.as_of AS point_date, sv.value,
-                           row_number() OVER (PARTITION BY p.as_of, sv.account_id
-                                              ORDER BY sv.as_of DESC, sv.id DESC) AS rn
-                      FROM points p
-                      JOIN snapshot_value sv ON sv.as_of <= p.as_of
-                )
-                SELECT point_date AS as_of, sum(value) AS total
-                  FROM carried
-                 WHERE rn = 1
-                 GROUP BY point_date
-                 ORDER BY point_date
-                """;
-        List<ValuePoint> points = new ArrayList<>();
-        try (Connection conn = db.connection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                points.add(new ValuePoint(rs.getDate("as_of").toLocalDate(), rs.getBigDecimal("total")));
-            }
-        } catch (SQLException e) {
-            throw new IllegalStateException("Could not read value history", e);
-        }
-        return points;
     }
 }
