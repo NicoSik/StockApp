@@ -121,9 +121,8 @@ public final class YahooClient {
      * Candidate symbols for a name, ticker or ISIN.
      *
      * <p>ISIN lookup works directly for listed equities, which is the cleanest
-     * path when an export happens to carry one. DNB's asset-class layout does,
-     * but nothing passes it down here yet, so in practice this is fed names and
-     * tickers.
+     * path when an export happens to carry one. DNB's asset-class layout and
+     * hand-entered funds do; everything else arrives as a name or a ticker.
      */
     public List<Match> search(String query) {
         List<Match> matches = new ArrayList<>();

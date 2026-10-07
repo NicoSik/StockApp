@@ -26,12 +26,11 @@ import java.util.UUID;
  *
  * <p>Always in two steps. A parse produces a <b>preview</b> in which every row
  * carries how it was resolved and how confident that is; nothing is written
- * until the preview is committed. That matters because identity is recovered
- * from a name or a ticker for every import - the one export that does carry an
- * ISIN is not read for it yet - so a mapping is an inference, and an inference
- * should be looked at once before it starts feeding a net-worth figure. A fund
- * entered by hand may supply an ISIN, which is the one identifier that is not
- * an inference at all.
+ * until the preview is committed. That matters because identity is usually
+ * recovered from a name or a ticker - only DNB's {@code DNBBeholdning.xlsx}
+ * and hand-entered funds carry an ISIN - so a mapping is usually an inference,
+ * and an inference should be looked at once before it starts feeding a
+ * net-worth figure.
  *
  * <p>Once a row is committed its broker-specific label is remembered as an
  * alias, so the same holding never has to be reviewed again.
