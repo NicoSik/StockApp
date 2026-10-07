@@ -56,6 +56,27 @@ be derived from stored daily bars without any new data source.
 **Export.** CSV of trades, or a JSON snapshot of the whole portfolio. Small,
 and it makes the paper portfolio useful outside the app.
 
+**Live sync for Nordnet and DNB, when they allow it.** Both still arrive as
+exported files, so their holdings are only as fresh as the last import. eToro
+shows what a live sync gives: a daily snapshot without anyone exporting
+anything. As checked in October 2026, neither is possible yet:
+
+- *Nordnet* has an External API (v2) with an endpoint for an account's
+  positions, `GET /accounts/{accid}/positions`. Its own documentation says it
+  is "currently not onboarding new customers". A Nordnet key also grants full
+  trading access, with no read-only mode, so it would need more care than the
+  read-only eToro key. If onboarding reopens: a `nordnet/` client with the
+  Ed25519 login, a sync service shaped like `EtoroSyncService`, and the daily
+  holdings job calling it. The CSV import stays as the fallback.
+- *DNB* offers no personal API for share or fund holdings. Its developer
+  portal has Open Banking (PSD2) APIs, which cover payment accounts, not
+  custody accounts, and are for licensed third parties. The file import stays.
+
+Worth checking again once a year.
+Sources: [Nordnet API – Getting started](https://www.nordnet.se/externalapi/docs/getting_started),
+[Nordnet API documentation](https://www.nordnet.se/externalapi/docs/api),
+[DNB Developer](https://developer.dnb.no/).
+
 ## Deliberately not planned
 
 **Real trading.** Wiring `POST /api/portfolio/orders` to Alpaca's order endpoint
