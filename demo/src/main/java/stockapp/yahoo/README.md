@@ -8,6 +8,7 @@ the resolver and the reconcile screen.
 
 **`YahooClient`**
 - `quote(symbol)` — live price, currency and previous close; empty when Yahoo has nothing.
+- `dailyCloses(symbol, from, to)` — one close per trading day, dated in the exchange's own time zone; days without a close are skipped. `parseDailyCloses(json)` is the parsing on its own, for tests.
 - `search(query)` — candidate symbols for a name, ticker or ISIN.
 - `suffixForCurrency(currency)` — the exchange suffix a currency implies: `.OL` for NOK, `.ST` for SEK, `.CO` for DKK, none otherwise.
 - `Quote`, `Match` — a price, and one search candidate.

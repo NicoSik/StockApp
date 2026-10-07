@@ -10,9 +10,14 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 
 /**
  * Norges Bank's published exchange rates against NOK.
@@ -53,8 +58,25 @@ public final class NorgesBankClient {
      *                               answers with an error
      */
     public Map<String, BigDecimal> latest(List<String> currencies) {
+        return parse(fetch(currencies, "lastNObservations=1"));
+    }
+
+    /**
+     * Every rate published for each currency between two dates, inclusive, as
+     * NOK per one unit. Business days only: there is no rate for a weekend or
+     * a holiday, so callers look up the last rate on or before a date.
+     *
+     * @throws IllegalStateException when Norges Bank cannot be reached or
+     *                               answers with an error
+     */
+    public Map<String, NavigableMap<LocalDate, BigDecimal>> history(List<String> currencies,
+                                                                    LocalDate from, LocalDate to) {
+        return parseHistory(fetch(currencies, "startPeriod=" + from + "&endPeriod=" + to));
+    }
+
+    private String fetch(List<String> currencies, String query) {
         String url = BASE_URL + "/B." + String.join("+", currencies) + ".NOK.SP"
-                + "?lastNObservations=1&format=csv";
+                + "?" + query + "&format=csv";
         Request request = new Request.Builder().url(url).get().build();
 
         try (Response response = http.newCall(request).execute()) {
@@ -63,10 +85,35 @@ public final class NorgesBankClient {
             if (!response.isSuccessful()) {
                 throw new IllegalStateException("HTTP " + response.code());
             }
-            return parse(csv);
+            return csv;
         } catch (IOException e) {
             throw new IllegalStateException(e.getMessage(), e);
         }
+    }
+
+    /** The latest rate per currency: the last row for it wins. */
+    static Map<String, BigDecimal> parse(String csv) {
+        Map<String, BigDecimal> rates = new LinkedHashMap<>();
+        for (Rate rate : rows(csv)) {
+            rates.put(rate.currency(), rate.nokPerUnit());
+        }
+        return rates;
+    }
+
+    /** Every dated rate per currency, oldest first. Rows without a date are skipped. */
+    static Map<String, NavigableMap<LocalDate, BigDecimal>> parseHistory(String csv) {
+        Map<String, NavigableMap<LocalDate, BigDecimal>> history = new LinkedHashMap<>();
+        for (Rate rate : rows(csv)) {
+            if (rate.date() != null) {
+                history.computeIfAbsent(rate.currency(), currency -> new TreeMap<>())
+                        .put(rate.date(), rate.nokPerUnit());
+            }
+        }
+        return history;
+    }
+
+    /** One CSV row, already normalised to NOK per one unit. */
+    private record Rate(String currency, LocalDate date, BigDecimal nokPerUnit) {
     }
 
     /**
@@ -75,8 +122,8 @@ public final class NorgesBankClient {
      * <p>Columns are located by header name rather than position: the response
      * carries a dozen metadata columns and their order is not contractual.
      */
-    static Map<String, BigDecimal> parse(String csv) {
-        Map<String, BigDecimal> rates = new LinkedHashMap<>();
+    private static List<Rate> rows(String csv) {
+        List<Rate> rates = new ArrayList<>();
         String[] lines = csv.split("\r?\n");
         if (lines.length < 2) {
             return rates;
@@ -86,6 +133,7 @@ public final class NorgesBankClient {
         int baseIdx = indexOf(header, "BASE_CUR");
         int valueIdx = indexOf(header, "OBS_VALUE");
         int multIdx = indexOf(header, "UNIT_MULT");
+        int dateIdx = indexOf(header, "TIME_PERIOD");
         if (baseIdx < 0 || valueIdx < 0) {
             return rates;
         }
@@ -107,8 +155,11 @@ public final class NorgesBankClient {
                 BigDecimal perUnit = mult == 0
                         ? observed
                         : observed.divide(BigDecimal.TEN.pow(mult), MC);
-                rates.put(base, perUnit);
-            } catch (NumberFormatException | ArithmeticException e) {
+                LocalDate date = dateIdx >= 0 && dateIdx < cells.length
+                        ? LocalDate.parse(cells[dateIdx].trim())
+                        : null;
+                rates.add(new Rate(base, date, perUnit));
+            } catch (NumberFormatException | ArithmeticException | DateTimeParseException e) {
                 // A single unparseable row must not lose the other currencies.
             }
         }
