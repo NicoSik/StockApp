@@ -72,10 +72,42 @@ anything. As checked in October 2026, neither is possible yet:
   portal has Open Banking (PSD2) APIs, which cover payment accounts, not
   custody accounts, and are for licensed third parties. The file import stays.
 
-Worth checking again once a year.
+*Why this is rare.* No law requires it: PSD2 opened payment accounts to
+licensed third parties and left share and fund accounts out. A brokerage key
+can move money, the bank carries the fraud liability, and its login (BankID)
+is built for a person, not a script. An API also earns the bank nothing and
+lets customers leave its app.
+
+*What could change it.* The EU's Financial Data Access regulation (FiDA)
+covers securities and investment accounts. It was not adopted as of December
+2025; adoption was expected around mid-2026, with obligations phased in from
+about 2027 and reaching Norway later through the EEA. Even then, access is
+likely to go through licensed providers rather than a personal key.
+
+*Brokers with an API for your own holdings today*, in case any of the money
+ever moves:
+
+| Provider | Holdings API | Read-only key | Notes |
+|---|---|---|---|
+| eToro | Yes | Yes | Already integrated |
+| Saxo | OpenAPI: positions, account | Via OAuth | Retail clients, own account; 24-hour token for testing |
+| Interactive Brokers | Web API: positions | Login-based | Runs through a local gateway you log in to in the browser |
+| Trading 212 | Public API (beta): positions | No scopes documented | Invest and Stocks ISA accounts only |
+| Nordnet | `/accounts/{accid}/positions` | No | Not onboarding new customers |
+| Firi (crypto) | Developer site exists | Not confirmed | Details not checked |
+| DNB, Nordea, other banks | No | — | Open Banking covers payment accounts only |
+
+Saxo is the natural first one: see *More brokers* above.
+
+Worth checking again once a year, and when FiDA is adopted.
 Sources: [Nordnet API – Getting started](https://www.nordnet.se/externalapi/docs/getting_started),
 [Nordnet API documentation](https://www.nordnet.se/externalapi/docs/api),
-[DNB Developer](https://developer.dnb.no/).
+[DNB Developer](https://developer.dnb.no/),
+[CMS – key developments in 2026](https://cms.law/en/deu/publication/2026-themen-die-sie-bewegen-werden/digitalisation-of-the-financial-sector-in-transition-key-developments-in-2026),
+[Saxo OpenAPI](https://www.developer.saxo/openapi/learn),
+[Interactive Brokers Web API](https://www.interactivebrokers.com/campus/ibkr-api-page/cpapi-v1/),
+[Trading 212 API](https://docs.trading212.com),
+[Firi developers](https://developers.firi.com/).
 
 ## Deliberately not planned
 
