@@ -3,7 +3,7 @@
 A stock watcher with a Robinhood-style interface: live watchlists, scrubable
 price charts, and a paper portfolio that never touches a broker.
 
-Java 17 · Javalin 7 · PostgreSQL · Alpaca, Yahoo, Norges Bank and eToro · a
+Java 17 · Javalin 7 · PostgreSQL · Alpaca, Yahoo, Norges Bank, eToro and Enable Banking · a
 vanilla-JS front end with no build step.
 
 ![The Ticker watchlist and stock detail view](docs/screenshots/ticker.png)
@@ -45,6 +45,7 @@ Drop in an export and it becomes one combined total:
 | **eToro** | **live API** — no export needed | eToro instrument id |
 | **Nordnet** | *Aksjelister* (`.csv`) | name — no ISIN, no ticker |
 | **DNB** | holdings report (`.xlsx`) | ticker, or ISIN |
+| **Bank accounts** | **Enable Banking** — BankID at your bank | the bank's account id |
 
 DNB emits two different holdings workbooks and both are read: the Norwegian
 one, with an `Aksjer` sheet keyed by ticker and a `Total` sheet to reconcile
@@ -85,6 +86,9 @@ in the table rather than shown as though they were ordinary stock.
   Trades made between imports appear at the next import or eToro sync, and
   anything without a market price stays at the value your broker reported.
   With eToro keys set, eToro is synced once a day while the app runs.
+- **Bank balances count too.** Link a bank and its account balances join the
+  total, synced once a day alongside eToro. See [Bank balances](#bank-balances)
+  below.
 
 Broker exports live in `imports/`, which is gitignored.
 
@@ -138,6 +142,54 @@ cd demo && .\mvnw.cmd compile exec:java     # Windows
 
 The first `mvnw` run downloads Apache Maven (~9 MB, SHA-512 verified) into
 `~/.m2/wrapper`. After that it is offline and instant.
+
+## Bank balances
+
+Optional. Bank account balances arrive through
+[Enable Banking](https://enablebanking.com), a licensed Open Banking
+aggregator. You approve read-only access with BankID at your own bank; Ticker
+never sees your BankID or your bank login. Enable Banking is free for private
+individuals reading their own accounts ("restricted production").
+
+**1. Register an application.** Sign in to the Enable Banking control panel
+and add an API application in **Production**:
+
+- Let the browser generate the key. It downloads a `.pem` file named after
+  the application ID. Move it **outside this repository**, for example
+  `~/.config/ticker/enablebanking.pem`. (`*.pem` is gitignored as a backstop.)
+- Under redirect URLs, register
+  `http://localhost:9090/api/holdings/banks/callback`. If the control panel
+  refuses a localhost address, register `https://enablebanking.com/` instead
+  and set `ENABLE_BANKING_REDIRECT_URL` to the same. Ticker then asks you to
+  paste the address the bank sends you to after BankID.
+
+**2. Activate it.** On the new, inactive application, choose **Activate by
+linking accounts** and approve each bank with BankID. That is what makes the
+application usable for free: the API then returns only the accounts you linked
+there.
+
+**3. Configure Ticker.** In `.env`:
+
+```bash
+ENABLE_BANKING_APP_ID=the-application-id
+ENABLE_BANKING_KEY_FILE=~/.config/ticker/enablebanking.pem
+```
+
+Restart, open Holdings and press **Connect a bank**. Pick the bank, finish
+BankID in the tab that opens, and the bank appears as an account named
+"DNB (bank)", one holding per bank account at its balance.
+
+Things to know:
+
+- **Consent lasts up to 180 days.** That is the PSD2 limit. Holdings shows when
+  each link runs out; after that, connect the bank again. You can revoke it
+  sooner in your bank.
+- **Banks limit unattended reads to about four a day.** The daily sync uses
+  one; press **Sync banks** sparingly.
+- **Booked balances are preferred over available ones.** "Available" can
+  include a credit line, which is not your money.
+- A key file that starts `BEGIN RSA PRIVATE KEY` is refused with the
+  `openssl` command that converts it.
 
 ## How it fits together
 

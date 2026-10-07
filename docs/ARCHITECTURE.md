@@ -63,7 +63,7 @@ and takes a `RoutesConfig` rather than a `Javalin`.
 ## Conventions
 
 - **One HTTP client.** `App` builds a single `OkHttpClient`; each upstream
-  client (`alpaca/`, `etoro/`, `yahoo/`, `norgesbank/`) derives its own
+  client (`alpaca/`, `etoro/`, `enablebanking/`, `yahoo/`, `norgesbank/`) derives its own
   timeouts from it with `newBuilder()`, so they share one connection pool and
   one dispatcher, and shutdown releases them once.
 - **One error contract.** Handlers throw `BadRequest`, `NotFound` or a domain
@@ -195,8 +195,9 @@ market/       rows -> verified symbols
 yahoo/        prices: Oslo, Stockholm, US, funds
 norgesbank/   NOK exchange rates
 etoro/        live eToro positions
-service/      import, eToro sync, valuation
-repo/         accounts, snapshots, instruments, rates
+enablebanking/  bank balances, consented with BankID
+service/      import, eToro and bank sync, valuation
+repo/         accounts, snapshots, instruments, rates, bank links
 web/          /api/holdings/*
 ```
 
@@ -274,6 +275,31 @@ Three things about eToro's API that cost time and are not in its documentation:
 - **`x-request-id` must be a real GUID.** A malformed one is rejected with
   `RequestIdNotValidGuid` rather than ignored.
 
+### Bank balances: a consent, then a daily read
+
+Bank accounts come through Enable Banking, a licensed aggregator that is free
+for a private individual reading their own accounts. Unlike eToro there is no
+static key that grants access: the application signs each request with its
+private key (an RS256 JWT, `kid` = application ID), and each bank must be
+consented with BankID first.
+
+Linking is a round trip through the browser. `BankSyncService.connect` asks
+for the bank's login page and remembers a random `state` for 30 minutes; the
+bank sends the browser back with a `code` and that `state`; `complete` turns
+the code into a session and stores it in `bank_link`. The callback can land on
+Ticker itself or, when the control panel will not register a localhost
+address, on a page outside it whose address the user pastes in. Both go
+through the same check of `state`.
+
+From then on a linked bank is just another account, "DNB (bank)", with one
+holding per bank account valued at its balance and `price_source` NONE, so the
+total, the account cards and the value history need no special case. Booked
+balances are preferred over available ones, which can include a credit line.
+The daily holdings job syncs every link whose consent is still valid; a link
+that is expired or refused is reported in the results and the other banks
+still sync. Consent lasts at most 180 days (PSD2), after which the user
+connects the bank again; the stored balances stay as they were.
+
 ### Simulated accounts are shown, never counted
 
 An eToro demo account reports a portfolio exactly like a real one, practice cash
@@ -311,9 +337,9 @@ run also refetches the last few stored days, because a close taken while a
 session was open was a live price.
 
 What it cannot see is a trade made between imports: until the next import or
-sync, the curve values the holdings the last import described. For eToro the
-scheduler syncs once a day while the app runs, which keeps that window to a
-day; file imports stay as fresh as the last file.
+sync, the curve values the holdings the last import described. For eToro and
+linked banks the scheduler syncs once a day while the app runs, which keeps
+that window to a day; file imports stay as fresh as the last file.
 
 ### Two valuation paths, reported separately
 

@@ -5,6 +5,10 @@
 !.env.example
 config.properties
 application-local.properties
+# Private keys, such as the Enable Banking application key. Keep them outside
+# the repository; this is the backstop.
+*.pem
+*.key
 
 # --- Private notes ---------------------------------------------------------
 # Anything named *.local.md stays on this machine. Use it for notes that are

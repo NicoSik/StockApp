@@ -11,11 +11,12 @@ tables, endpoints or screens:
 
 - **Paper trading** — watchlists, charts, a simulated portfolio. US equities
   from Alpaca.
-- **Holdings** — real accounts from DNB, Nordnet and eToro, valued in NOK.
+- **Holdings** — real accounts from DNB, Nordnet and eToro, plus linked bank
+  balances, valued in NOK.
 
 | Package | What it is |
 |---|---|
-| `alpaca/`, `etoro/`, `yahoo/`, `norgesbank/` | One client per external API |
+| `alpaca/`, `etoro/`, `enablebanking/`, `yahoo/`, `norgesbank/` | One client per external API |
 | `importer/` | Reading broker export files |
 | `market/` | Deciding which instrument an export row refers to |
 | `model/` | Plain data shared across layers |
@@ -44,5 +45,7 @@ tables, endpoints or screens:
 - New objects are wired in `App`, in dependency order. Nothing constructs its
   own collaborators.
 - New settings go in `Config` with a default, and in `.env.example`.
+- `App` warns at startup when an Enable Banking application ID is set but its
+  key file cannot be read, rather than letting bank linking vanish silently.
 - The server binds to `127.0.0.1`. It serves real holdings without
   authentication.
