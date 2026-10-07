@@ -56,6 +56,84 @@ be derived from stored daily bars without any new data source.
 **Export.** CSV of trades, or a JSON snapshot of the whole portfolio. Small,
 and it makes the paper portfolio useful outside the app.
 
+**Live sync for Nordnet and DNB, when they allow it.** Both still arrive as
+exported files, so their holdings are only as fresh as the last import. eToro
+shows what a live sync gives: a daily snapshot without anyone exporting
+anything. As checked in October 2026, neither is possible yet:
+
+- *Nordnet* has an External API (v2) with an endpoint for an account's
+  positions, `GET /accounts/{accid}/positions`. Its own documentation says it
+  is "currently not onboarding new customers". A Nordnet key also grants full
+  trading access, with no read-only mode, so it would need more care than the
+  read-only eToro key. If onboarding reopens: a `nordnet/` client with the
+  Ed25519 login, a sync service shaped like `EtoroSyncService`, and the daily
+  holdings job calling it. The CSV import stays as the fallback.
+- *DNB* offers no personal API for share or fund holdings. Its developer
+  portal has Open Banking (PSD2) APIs, which cover payment accounts, not
+  custody accounts, and are for licensed third parties. The file import stays.
+
+*Why this is rare.* No law requires it: PSD2 opened payment accounts to
+licensed third parties and left share and fund accounts out. A brokerage key
+can move money, the bank carries the fraud liability, and its login (BankID)
+is built for a person, not a script. An API also earns the bank nothing and
+lets customers leave its app.
+
+*What could change it.* The EU's Financial Data Access regulation (FiDA)
+covers securities and investment accounts. It was not adopted as of December
+2025; adoption was expected around mid-2026, with obligations phased in from
+about 2027 and reaching Norway later through the EEA. Even then, access is
+likely to go through licensed providers rather than a personal key.
+
+*Brokers with an API for your own holdings today*, in case any of the money
+ever moves:
+
+| Provider | Holdings API | Read-only key | Notes |
+|---|---|---|---|
+| eToro | Yes | Yes | Already integrated |
+| Saxo | OpenAPI: positions, account | Via OAuth | Retail clients, own account; 24-hour token for testing |
+| Interactive Brokers | Web API: positions | Login-based | Runs through a local gateway you log in to in the browser |
+| Trading 212 | Public API (beta): positions | No scopes documented | Invest and Stocks ISA accounts only |
+| Nordnet | `/accounts/{accid}/positions` | No | Not onboarding new customers |
+| Firi (crypto) | Developer site exists | Not confirmed | Details not checked |
+| DNB, Nordea, other banks | No | — | Open Banking covers payment accounts only |
+
+Saxo is the natural first one: see *More brokers* above.
+
+*The shape a bank integration should take.* Not a static key, but BankID
+consent: "Connect DNB" opens the bank's login, BankID approves a read-only
+grant, and the app gets a token limited to reading holdings that expires
+(say after 180 days) and can be revoked in the bank. The daily holdings job
+would then sync DNB and Nordnet like eToro, with a BankID re-approval about
+twice a year. BankID cannot be automated and only the bank can offer the
+login, so this needs the bank's co-operation - it is the model Open Banking
+already uses for payment accounts, and what FiDA would require for
+investments.
+
+*What can be connected with BankID today.* Only bank accounts, through a
+licensed Open Banking aggregator:
+
+- *Enable Banking* covers DNB, SpareBank 1, Nordea, Handelsbanken and Danske
+  Bank with a BankID redirect, and reportedly allows free access to your own
+  linked accounts. Balances and transactions only - it would add cash in
+  bank accounts to the total, not holdings.
+- *Tink Investments* returns holdings with ISIN and quantity, but is sold to
+  businesses and does not list Norway.
+- *GoCardless Bank Account Data* (formerly Nordigen) stopped accepting new
+  sign-ups in July 2025.
+
+Worth checking again once a year, and when FiDA is adopted.
+Sources: [Nordnet API – Getting started](https://www.nordnet.se/externalapi/docs/getting_started),
+[Nordnet API documentation](https://www.nordnet.se/externalapi/docs/api),
+[DNB Developer](https://developer.dnb.no/),
+[CMS – key developments in 2026](https://cms.law/en/deu/publication/2026-themen-die-sie-bewegen-werden/digitalisation-of-the-financial-sector-in-transition-key-developments-in-2026),
+[Saxo OpenAPI](https://www.developer.saxo/openapi/learn),
+[Interactive Brokers Web API](https://www.interactivebrokers.com/campus/ibkr-api-page/cpapi-v1/),
+[Trading 212 API](https://docs.trading212.com),
+[Firi developers](https://developers.firi.com/),
+[Enable Banking – Norway](https://enablebanking.com/docs/markets/no/),
+[Tink Investments](https://tink.com/products/investments),
+[GoCardless Bank Account Data alternatives](https://dev.to/johnfrandsen/gocardless-bank-account-data-alternatives-what-to-use-when-signups-are-disabled-326d).
+
 ## Deliberately not planned
 
 **Real trading.** Wiring `POST /api/portfolio/orders` to Alpaca's order endpoint
