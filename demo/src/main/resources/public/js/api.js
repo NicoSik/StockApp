@@ -106,6 +106,11 @@ export const api = {
     lookupInstrument: (q, currency) => request(`/api/holdings/lookup${query({ q, currency })}`),
     etoroStatus: () => request('/api/holdings/etoro/status'),
     etoroSync: () => post('/api/holdings/etoro/sync'),
+    bankStatus: () => request('/api/holdings/banks'),
+    availableBanks: () => request('/api/holdings/banks/available'),
+    connectBank: (bank) => post('/api/holdings/banks/connect', { bank }),
+    completeBank: (url) => post('/api/holdings/banks/complete', { url }),
+    syncBanks: () => post('/api/holdings/banks/sync'),
 
     alerts: () => request('/api/alerts'),
     createAlert: (symbol, direction, threshold) => post('/api/alerts', { symbol, direction, threshold }),

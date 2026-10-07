@@ -62,11 +62,13 @@ export async function renderHoldingsView(main) {
     let data;
     let history = { points: [] };
     let etoro = { configured: false };
+    let banks = { configured: false, links: [] };
     try {
-        [data, history, etoro] = await Promise.all([
+        [data, history, etoro, banks] = await Promise.all([
             api.holdings(),
             api.holdingsHistory().catch(() => ({ points: [] })),
             api.etoroStatus().catch(() => ({ configured: false })),
+            api.bankStatus().catch(() => ({ configured: false, links: [] })),
         ]);
     } catch (error) {
         setHtml(main, `<div class="empty"><p class="empty__title">Could not load holdings</p>
@@ -83,7 +85,7 @@ export async function renderHoldingsView(main) {
         activeAccount = null;
     }
 
-    setHtml(main, markup(data, history, etoro));
+    setHtml(main, markup(data, history, etoro, banks));
     mountChart(data, history);
     bind(main);
     bindSorting();
@@ -93,7 +95,7 @@ export async function renderHoldingsView(main) {
 
 // ==================================================================== markup
 
-function markup(data, history, etoro) {
+function markup(data, history, etoro, banks) {
     const empty = !data.holdings || data.holdings.length === 0;
     const gainDir = fmt.direction(data.gainNok);
 
@@ -113,8 +115,16 @@ function markup(data, history, etoro) {
                 ? `<button type="button" class="button button--small" id="h-etoro">
                        Sync eToro${etoro.demo ? ' (demo)' : ''}</button>`
                 : ''}
+            ${banks?.configured
+                ? `<button type="button" class="button button--small" id="h-bank-connect">Connect a bank</button>
+                   ${banks.links?.length
+                       ? '<button type="button" class="button button--small" id="h-bank-sync">Sync banks</button>' : ''}`
+                : ''}
             <button type="button" class="button button--small button--ghost" id="h-refresh">Refresh prices</button>
         </div>
+        ${banks?.links?.length ? `
+            <p class="note" style="margin-top:var(--space-2)">Banks: ${banks.links.map(bankLinkNote).join(' · ')}</p>`
+            : ''}
         ${etoro && !etoro.configured ? `
             <p class="note" style="margin-top:var(--space-2)">
                 eToro can sync automatically — add <code>ETORO_API_KEY</code> and
@@ -569,6 +579,26 @@ function bind(main) {
         await renderHoldingsView(main);
     });
 
+    qs('#h-bank-connect', main)?.addEventListener('click', () => openBanks(main));
+    qs('#h-bank-sync', main)?.addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        const original = button.textContent;
+        button.textContent = 'Syncing…';
+        try {
+            const { results } = await api.syncBanks();
+            for (const result of results) {
+                toast(`${result.bank}: ${result.accounts} account(s) synced.`, 'success');
+                (result.notes ?? []).forEach((note) => toast(note, 'info'));
+            }
+            await renderHoldingsView(main);
+        } catch (error) {
+            toast(error.message, 'error');
+            button.disabled = false;
+            button.textContent = original;
+        }
+    });
+
     qs('#h-etoro', main)?.addEventListener('click', async (event) => {
         const button = event.currentTarget;
         button.disabled = true;
@@ -741,6 +771,100 @@ const FUND_ACCOUNTS = [
 
 /** Which fund account the dialog is editing. */
 let fundAccount = FUND_ACCOUNTS[0].name;
+
+// ===================================================================== banks
+
+/** "DNB until 2027-04-05", or that it has expired. */
+function bankLinkNote(link) {
+    const until = (link.validUntil ?? '').slice(0, 10);
+    return link.expired
+        ? `${escapeHtml(link.bank)} <strong>expired ${escapeHtml(until)}</strong> — connect it again`
+        : `${escapeHtml(link.bank)} until ${escapeHtml(until)}`;
+}
+
+/**
+ * Links a bank in two steps. Choosing a bank opens its BankID login in a new
+ * tab. If the bank sends the browser back to Ticker, the link completes there
+ * on its own; if it lands on a page outside Ticker, its address is pasted in
+ * here instead.
+ */
+async function openBanks(main) {
+    const backdrop = qs('#h-import-backdrop');
+    if (!backdrop) return;
+    backdrop.hidden = false;
+    document.addEventListener('keydown', escapeToClose);
+    setHtml(qs('#h-import-body'), '<div style="padding:var(--space-5)"><p class="note">Loading banks…</p></div>');
+
+    let banks;
+    try {
+        banks = await api.availableBanks();
+    } catch (error) {
+        setHtml(qs('#h-import-body'), `<div style="padding:var(--space-5)">
+            <p class="note">${escapeHtml(error.message)}</p>
+            <button type="button" class="button button--small button--ghost" id="h-bank-cancel">Close</button></div>`);
+        qs('#h-bank-cancel')?.addEventListener('click', closeImport);
+        return;
+    }
+
+    setHtml(qs('#h-import-body'), `
+    <div style="padding:var(--space-5); max-height:80vh; overflow:auto">
+        <h2 class="card__title"><span>Connect a bank</span></h2>
+        <p class="note">Your bank's balances are added to the total and synced every day. You approve
+           read-only access with BankID at the bank; it lasts up to 180 days, and you can revoke it
+           at the bank at any time.</p>
+        <p style="margin-top:var(--space-4)">
+            <label class="note" for="h-bank-choice">Bank</label><br>
+            <select id="h-bank-choice" style="margin-top:var(--space-2)">
+                ${banks.map((bank) => `<option value="${escapeHtml(bank.name)}">${escapeHtml(bank.name)}</option>`).join('')}
+            </select>
+        </p>
+        <div class="hero__actions" style="margin-top:var(--space-4)">
+            <button type="button" class="button button--small" id="h-bank-start">Continue with BankID</button>
+            <button type="button" class="button button--small button--ghost" id="h-bank-cancel">Cancel</button>
+        </div>
+        <div id="h-bank-finish" hidden style="margin-top:var(--space-5)">
+            <p class="note">Finish BankID in the new tab. If the bank brings you back to Ticker, the bank is
+               linked there. If you land on a page outside Ticker, copy its address and paste it here:</p>
+            <input type="text" id="h-bank-url" placeholder="https://…" autocomplete="off"
+                   style="width:100%;margin-top:var(--space-2);background:transparent;border:1px solid var(--border);
+                          border-radius:var(--radius-sm);padding:var(--space-2)">
+            <div class="hero__actions" style="margin-top:var(--space-3)">
+                <button type="button" class="button button--small" id="h-bank-complete">Finish linking</button>
+                <button type="button" class="button button--small button--ghost" id="h-bank-done">Done</button>
+            </div>
+        </div>
+        <p class="note" id="h-bank-error" style="margin-top:var(--space-3)"></p>
+    </div>`);
+
+    const error = (message) => setHtml(qs('#h-bank-error'), escapeHtml(message ?? ''));
+    qs('#h-bank-cancel')?.addEventListener('click', closeImport);
+    qs('#h-bank-start')?.addEventListener('click', async () => {
+        error('');
+        try {
+            const { url } = await api.connectBank(qs('#h-bank-choice').value);
+            window.open(url, '_blank', 'noopener');
+            qs('#h-bank-finish').hidden = false;
+        } catch (e) {
+            error(e.message);
+        }
+    });
+    qs('#h-bank-complete')?.addEventListener('click', async () => {
+        error('');
+        try {
+            const { result } = await api.completeBank(qs('#h-bank-url').value);
+            toast(`${result.bank} linked: ${result.accounts} account(s).`, 'success');
+            (result.notes ?? []).forEach((note) => toast(note, 'info'));
+            closeImport();
+            await renderHoldingsView(main);
+        } catch (e) {
+            error(e.message);
+        }
+    });
+    qs('#h-bank-done')?.addEventListener('click', async () => {
+        closeImport();
+        await renderHoldingsView(main);
+    });
+}
 
 function openFunds() {
     const backdrop = qs('#h-import-backdrop');

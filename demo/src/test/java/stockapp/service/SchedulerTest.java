@@ -42,27 +42,27 @@ class SchedulerTest {
     // ------------------------------------------------------ holdings day
 
     @Test
-    void theHoldingsDaySyncsEtoroBeforeRefreshingTheHistory() {
+    void theSyncsRunInOrderBeforeTheHistoryRefresh() {
         List<String> ran = new ArrayList<>();
-        Scheduler.runHoldingsDay(true, () -> ran.add("etoro"), () -> ran.add("history"));
-        assertEquals(List.of("etoro", "history"), ran);
+        Scheduler.runHoldingsDay(List.of(() -> ran.add("etoro"), () -> ran.add("banks")), () -> ran.add("history"));
+        assertEquals(List.of("etoro", "banks", "history"), ran);
     }
 
     @Test
-    void withoutEtoroKeysOnlyTheHistoryIsRefreshed() {
+    void withNothingToSyncOnlyTheHistoryIsRefreshed() {
         List<String> ran = new ArrayList<>();
-        Scheduler.runHoldingsDay(false, () -> ran.add("etoro"), () -> ran.add("history"));
+        Scheduler.runHoldingsDay(List.of(), () -> ran.add("history"));
         assertEquals(List.of("history"), ran);
     }
 
     @Test
-    void aFailedEtoroSyncDoesNotStopTheHistoryRefresh() {
-        // Bad keys, a rate limit or a stall must not cost the other accounts
-        // their day of history.
+    void aFailedSyncDoesNotStopTheOthersOrTheHistory() {
+        // Bad keys, a rate limit or a stall at one provider must not cost the
+        // other accounts their day of history.
         List<String> ran = new ArrayList<>();
-        Scheduler.runHoldingsDay(true, () -> {
+        Scheduler.runHoldingsDay(List.of(() -> {
             throw new IllegalStateException("eToro is not responding");
-        }, () -> ran.add("history"));
-        assertEquals(List.of("history"), ran);
+        }, () -> ran.add("banks")), () -> ran.add("history"));
+        assertEquals(List.of("banks", "history"), ran);
     }
 }

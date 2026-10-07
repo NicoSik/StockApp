@@ -67,6 +67,28 @@ public final class Config {
     // --- Server -------------------------------------------------------------
     public static final int SERVER_PORT = getInt("SERVER_PORT", 9090);
 
+    // --- Enable Banking -----------------------------------------------------
+    /**
+     * Bank account balances through Enable Banking. Optional - the feature
+     * hides itself when these are absent. The application ID and its private
+     * key (the .pem the control panel downloads) come from the Enable Banking
+     * control panel. Keep the key file outside the repository.
+     */
+    public static final String ENABLE_BANKING_APP_ID = get("ENABLE_BANKING_APP_ID", "");
+    public static final String ENABLE_BANKING_KEY_FILE = get("ENABLE_BANKING_KEY_FILE", "");
+    public static final String ENABLE_BANKING_API_URL =
+            trimTrailingSlash(get("ENABLE_BANKING_API_URL", "https://api.enablebanking.com"));
+    /** Banks are listed for this country. */
+    public static final String ENABLE_BANKING_COUNTRY = get("ENABLE_BANKING_COUNTRY", "NO");
+    /**
+     * Where the bank sends the browser after BankID. It must also be registered
+     * on the application in the control panel. If Enable Banking will not take
+     * a localhost address, register https://enablebanking.com/ there and here,
+     * and paste the address you land on into Ticker instead.
+     */
+    public static final String ENABLE_BANKING_REDIRECT_URL = get("ENABLE_BANKING_REDIRECT_URL",
+            "http://localhost:" + SERVER_PORT + "/api/holdings/banks/callback");
+
     // --- Behaviour ----------------------------------------------------------
     /** Virtual starting cash for the local paper portfolio. */
     public static final String PAPER_STARTING_CASH = get("PAPER_STARTING_CASH", "100000");

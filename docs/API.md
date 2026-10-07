@@ -316,6 +316,57 @@ against documentation rather than a live account, so this is what shows the real
 shape when a field is not where it was expected. Read-only, and restricted to
 paths on eToro's own API.
 
+### Bank balances (Enable Banking)
+
+Bank accounts linked with BankID through Enable Banking. Each linked bank is
+stored as an account named "<bank> (bank)", one holding per bank account at its
+balance. Every endpoint except the status returns 502 with an explanation when
+`ENABLE_BANKING_APP_ID` and `ENABLE_BANKING_KEY_FILE` are not set, or when
+Enable Banking or the bank refuses.
+
+### `GET /api/holdings/banks`
+```json
+{ "configured": true,
+  "redirectUrl": "http://localhost:9090/api/holdings/banks/callback",
+  "links": [{ "bank": "DNB", "validUntil": "2027-04-05T11:00:00Z",
+              "expired": false, "accounts": 2 }] }
+```
+`configured` is false when the keys are absent, which is how the UI decides
+whether to offer bank linking at all.
+
+### `GET /api/holdings/banks/available`
+The banks that can be linked in `ENABLE_BANKING_COUNTRY`:
+```json
+[{ "name": "DNB", "country": "NO", "maximumConsentSeconds": 15552000 }]
+```
+
+### `POST /api/holdings/banks/connect`
+```json
+{ "bank": "DNB" }
+```
+Starts the BankID login and returns the bank's page to open:
+`{"url": "https://..."}`. Consent is asked for as long as the bank allows, at
+most 180 days. The login must be finished within 30 minutes.
+
+### `GET /api/holdings/banks/callback?code=&state=`
+Where the bank sends the browser after BankID, when the registered redirect
+URL is this app. Links the bank, syncs it, and answers with a short HTML page
+saying what was linked or why not. A `state` this app did not start is refused.
+
+### `POST /api/holdings/banks/complete`
+```json
+{ "url": "https://enablebanking.com/?state=...&code=..." }
+```
+The same as the callback, for when the registered redirect is not this app: the
+address the browser landed on is pasted in. Returns
+`{"result": {...}, "holdings": {...}}`, where `result` is
+`{ "bank", "accountName", "accounts", "totalNok", "notes" }`.
+
+### `POST /api/holdings/banks/sync`
+Reads every linked bank whose consent is still valid and writes today's
+snapshot of its balances. An expired link is skipped and named in its
+`notes`. Returns `{"results": [...], "holdings": {...}}`.
+
 ### Also available
 `GET /api/holdings/accounts`, `GET /api/holdings/instruments` — the raw rows,
 useful for debugging. Nothing in the UI calls them.

@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -26,9 +27,9 @@ import java.util.concurrent.TimeUnit;
  *       the user is looking at something else</li>
  *   <li><b>end-of-day bars</b> - once daily after the close, keeping stored
  *       history current for the portfolio chart and the offline fallback</li>
- *   <li><b>holdings day</b> - once daily after the close: syncs eToro when
- *       its keys are set, then fetches the closes and rates the holdings
- *       value history is missing</li>
+ *   <li><b>holdings day</b> - once daily after the close: syncs eToro and the
+ *       linked banks when they are configured, then fetches the closes and
+ *       rates the holdings value history is missing</li>
  *   <li><b>asset sync</b> - once daily, picking up new listings</li>
  * </ul>
  *
@@ -51,15 +52,17 @@ public final class Scheduler implements AutoCloseable {
     private final StockRepo stocks;
     private final WatchlistRepo watchlists;
     private final EtoroSyncService etoroSync;
+    private final BankSyncService bankSync;
     private final HoldingsHistorySync historySync;
 
     public Scheduler(AlertService alerts, AlpacaSync alpacaSync, StockRepo stocks, WatchlistRepo watchlists,
-                     EtoroSyncService etoroSync, HoldingsHistorySync historySync) {
+                     EtoroSyncService etoroSync, BankSyncService bankSync, HoldingsHistorySync historySync) {
         this.alerts = alerts;
         this.alpacaSync = alpacaSync;
         this.stocks = stocks;
         this.watchlists = watchlists;
         this.etoroSync = etoroSync;
+        this.bankSync = bankSync;
         this.historySync = historySync;
         this.executor = Executors.newScheduledThreadPool(2, runnable -> {
             Thread thread = new Thread(runnable, "ticker-scheduler");
@@ -85,27 +88,40 @@ public final class Scheduler implements AutoCloseable {
     }
 
     /**
-     * Syncs eToro, so its positions are a day old at most rather than as old
-     * as the last time someone pressed the button, then fills in the history.
+     * Syncs eToro and the linked banks, so their figures are a day old at most
+     * rather than as old as the last time someone pressed a button, then fills
+     * in the history.
      */
     private void holdingsDay() {
-        runHoldingsDay(etoroSync.configured(), () -> {
-            EtoroSyncService.Result result = etoroSync.sync();
-            log.info("Daily eToro sync: {} positions, {} kr", result.positions(), result.totalNok());
-        }, historySync::refresh);
+        List<Runnable> syncs = new ArrayList<>();
+        if (etoroSync.configured()) {
+            syncs.add(() -> {
+                EtoroSyncService.Result result = etoroSync.sync();
+                log.info("Daily eToro sync: {} positions, {} kr", result.positions(), result.totalNok());
+            });
+        }
+        if (bankSync.configured()) {
+            syncs.add(() -> {
+                for (BankSyncService.Result result : bankSync.syncAll()) {
+                    log.info("Daily bank sync: {}, {} accounts, {} kr {}", result.bank(), result.accounts(),
+                            result.totalNok(), result.notes());
+                }
+            });
+        }
+        runHoldingsDay(syncs, historySync::refresh);
     }
 
     /**
-     * The holdings day's two steps, in order. A failed eToro sync is logged and
-     * the history is refreshed anyway: bad keys or a stall must not cost the
-     * other accounts their day of history.
+     * The holdings day's steps, in order. A failed sync is logged and the rest
+     * still run: bad keys or a stall at one provider must not cost the other
+     * accounts their day of history.
      */
-    static void runHoldingsDay(boolean etoroConfigured, Runnable etoroSync, Runnable historyRefresh) {
-        if (etoroConfigured) {
+    static void runHoldingsDay(List<Runnable> syncs, Runnable historyRefresh) {
+        for (Runnable sync : syncs) {
             try {
-                etoroSync.run();
+                sync.run();
             } catch (RuntimeException e) {
-                log.warn("Daily eToro sync failed: {}", e.getMessage());
+                log.warn("Daily sync failed: {}", e.getMessage());
             }
         }
         historyRefresh.run();

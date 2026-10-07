@@ -6,12 +6,14 @@ import okhttp3.OkHttpClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import stockapp.alpaca.AlpacaClient;
+import stockapp.enablebanking.EnableBankingClient;
 import stockapp.etoro.EtoroClient;
 import stockapp.market.InstrumentResolver;
 import stockapp.model.Stock;
 import stockapp.norgesbank.NorgesBankClient;
 import stockapp.repo.AccountRepo;
 import stockapp.repo.AlertRepo;
+import stockapp.repo.BankLinkRepo;
 import stockapp.repo.ClosingPriceRepo;
 import stockapp.repo.FxRepo;
 import stockapp.repo.InstrumentRepo;
@@ -24,6 +26,7 @@ import stockapp.service.FxService;
 import stockapp.service.HoldingsHistorySync;
 import stockapp.service.ImportService;
 import stockapp.service.AlpacaSync;
+import stockapp.service.BankSyncService;
 import stockapp.service.MarketData;
 import stockapp.service.PortfolioService;
 import stockapp.service.Scheduler;
@@ -35,6 +38,7 @@ import stockapp.web.GsonMapper;
 import stockapp.yahoo.YahooClient;
 
 import java.math.BigDecimal;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -108,6 +112,14 @@ public final class App {
         EtoroClient etoroClient = new EtoroClient(http);
         EtoroSyncService etoroSync = new EtoroSyncService(etoroClient, accountRepo, instrumentRepo, fxService);
 
+        // Bank balances through Enable Banking, consented with BankID at the
+        // bank. Optional like eToro: without an application ID and key file
+        // the feature hides itself.
+        EnableBankingClient enableBanking = new EnableBankingClient(http, Config.ENABLE_BANKING_API_URL,
+                Config.ENABLE_BANKING_APP_ID, keyFile(Config.ENABLE_BANKING_KEY_FILE));
+        BankSyncService bankSync = new BankSyncService(enableBanking, new BankLinkRepo(db), accountRepo,
+                instrumentRepo, fxService, Config.ENABLE_BANKING_COUNTRY, Config.ENABLE_BANKING_REDIRECT_URL);
+
         portfolios.ensurePortfolio(PORTFOLIO_NAME, new BigDecimal(Config.PAPER_STARTING_CASH));
         seedWatchlist(stocks, watchlists);
 
@@ -124,13 +136,14 @@ public final class App {
                     String.format(Locale.ROOT, "%,d", stocks.count()));
         }
 
-        Scheduler scheduler = new Scheduler(alertService, alpacaSync, stocks, watchlists, etoroSync, historySync);
+        Scheduler scheduler = new Scheduler(alertService, alpacaSync, stocks, watchlists, etoroSync, bankSync,
+                historySync);
         scheduler.start();
         historySync.refreshInBackground();
 
         Api api = new Api(stocks, watchlists, alerts, marketData, portfolio, alertService, alpaca);
         AggregatorApi aggregatorApi = new AggregatorApi(
-                accountRepo, instrumentRepo, importService, valuation, historySync, yahoo, etoroSync, etoroClient);
+                accountRepo, instrumentRepo, importService, valuation, historySync, yahoo, etoroSync, etoroClient, bankSync);
 
         Javalin app = Javalin.create(config -> {
             config.jsonMapper(new GsonMapper());
@@ -197,6 +210,18 @@ public final class App {
             }
         }
         log.info("Created starter watchlist with {} symbols", added);
+    }
+
+    /** A key file path from .env, with a leading ~ expanded; null when unset. */
+    private static Path keyFile(String configured) {
+        if (configured == null || configured.isBlank()) {
+            return null;
+        }
+        String path = configured.trim();
+        if (path.startsWith("~/")) {
+            path = System.getProperty("user.home") + path.substring(1);
+        }
+        return Path.of(path);
     }
 
     /** Releases the shared HTTP client's threads and pooled connections. */

@@ -18,6 +18,7 @@ startup, each in its own transaction, and records them in `schema_migration`.
 | `V009__simulated_accounts` | `account.simulated` |
 | `V010__snapshot_cost_basis` | a broker's portfolio-level cost basis on `snapshot` |
 | `V011__instrument_close` | `instrument_close`: daily closes for priced holdings, keyed by symbol |
+| `V012__bank_links` | `bank_link`, `bank_link_account`: bank consents through Enable Banking and their accounts |
 
 ## Adding one
 
