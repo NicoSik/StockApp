@@ -99,6 +99,28 @@ ever moves:
 
 Saxo is the natural first one: see *More brokers* above.
 
+*The shape a bank integration should take.* Not a static key, but BankID
+consent: "Connect DNB" opens the bank's login, BankID approves a read-only
+grant, and the app gets a token limited to reading holdings that expires
+(say after 180 days) and can be revoked in the bank. The daily holdings job
+would then sync DNB and Nordnet like eToro, with a BankID re-approval about
+twice a year. BankID cannot be automated and only the bank can offer the
+login, so this needs the bank's co-operation - it is the model Open Banking
+already uses for payment accounts, and what FiDA would require for
+investments.
+
+*What can be connected with BankID today.* Only bank accounts, through a
+licensed Open Banking aggregator:
+
+- *Enable Banking* covers DNB, SpareBank 1, Nordea, Handelsbanken and Danske
+  Bank with a BankID redirect, and reportedly allows free access to your own
+  linked accounts. Balances and transactions only - it would add cash in
+  bank accounts to the total, not holdings.
+- *Tink Investments* returns holdings with ISIN and quantity, but is sold to
+  businesses and does not list Norway.
+- *GoCardless Bank Account Data* (formerly Nordigen) stopped accepting new
+  sign-ups in July 2025.
+
 Worth checking again once a year, and when FiDA is adopted.
 Sources: [Nordnet API – Getting started](https://www.nordnet.se/externalapi/docs/getting_started),
 [Nordnet API documentation](https://www.nordnet.se/externalapi/docs/api),
@@ -107,7 +129,10 @@ Sources: [Nordnet API – Getting started](https://www.nordnet.se/externalapi/do
 [Saxo OpenAPI](https://www.developer.saxo/openapi/learn),
 [Interactive Brokers Web API](https://www.interactivebrokers.com/campus/ibkr-api-page/cpapi-v1/),
 [Trading 212 API](https://docs.trading212.com),
-[Firi developers](https://developers.firi.com/).
+[Firi developers](https://developers.firi.com/),
+[Enable Banking – Norway](https://enablebanking.com/docs/markets/no/),
+[Tink Investments](https://tink.com/products/investments),
+[GoCardless Bank Account Data alternatives](https://dev.to/johnfrandsen/gocardless-bank-account-data-alternatives-what-to-use-when-signups-are-disabled-326d).
 
 ## Deliberately not planned
 
