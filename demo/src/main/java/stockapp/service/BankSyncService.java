@@ -47,8 +47,8 @@ public final class BankSyncService {
     record Callback(String code, String state) {
     }
 
-    /** A bank login that was started here and not finished yet. */
-    private record Pending(String bank, String country) {
+    /** A bank login that was started here and not finished yet, and the consent it asked for. */
+    private record Pending(String bank, String country, Instant requestedUntil) {
     }
 
     /** One link as the page shows it. */
@@ -108,9 +108,10 @@ public final class BankSyncService {
                 .orElseThrow(() -> new EnableBankingException(
                         "Enable Banking has no bank called \"" + bankName + "\" in " + country + "."));
         String state = UUID.randomUUID().toString();
-        pending.put(state, new Pending(bank.name(), bank.country() == null ? country : bank.country()), PENDING_TTL);
-        return client.startAuthorization(bank.name(), country, redirectUrl, state,
-                consentUntil(Instant.now(), bank.maximumConsentSeconds()));
+        Instant until = consentUntil(Instant.now(), bank.maximumConsentSeconds());
+        pending.put(state, new Pending(bank.name(), bank.country() == null ? country : bank.country(), until),
+                PENDING_TTL);
+        return client.startAuthorization(bank.name(), country, redirectUrl, state, until);
     }
 
     /**
@@ -126,9 +127,15 @@ public final class BankSyncService {
         }
         pending.invalidate(state);
         EnableBankingClient.Session session = client.createSession(code);
+        if (session.validUntil() == null) {
+            // The consent's end should come back with the session; if it does
+            // not, the end that was asked for is the best estimate there is.
+            session = new EnableBankingClient.Session(session.id(), started.requestedUntil(), session.accounts());
+        }
+        String sessionId = session.id();
         links.save(started.bank(), started.country(), session);
         BankLinkRepo.Link link = links.all().stream()
-                .filter(candidate -> candidate.sessionId().equals(session.id()))
+                .filter(candidate -> candidate.sessionId().equals(sessionId))
                 .findFirst()
                 .orElseThrow();
         return sync(link);
@@ -140,7 +147,11 @@ public final class BankSyncService {
         return complete(callback.code(), callback.state());
     }
 
-    /** Syncs every link whose consent is still valid. An expired one is skipped and named in the notes. */
+    /**
+     * Syncs every link whose consent is still valid. An expired one is skipped
+     * and named in the notes, and so is one that fails: a refusal at one bank
+     * must not cost the others their balances.
+     */
     public List<Result> syncAll() {
         List<Result> results = new ArrayList<>();
         Instant now = Instant.now();
@@ -151,7 +162,12 @@ public final class BankSyncService {
                                 + ". Connect the bank again to keep its balances current.")));
                 continue;
             }
-            results.add(sync(link));
+            try {
+                results.add(sync(link));
+            } catch (RuntimeException e) {
+                results.add(new Result(link.bank(), accountName(link.bank()), 0, BigDecimal.ZERO,
+                        List.of(link.bank() + " could not be synced: " + e.getMessage())));
+            }
         }
         return results;
     }

@@ -320,9 +320,9 @@ paths on eToro's own API.
 
 Bank accounts linked with BankID through Enable Banking. Each linked bank is
 stored as an account named "<bank> (bank)", one holding per bank account at its
-balance. Every endpoint except the status returns 502 with an explanation when
-`ENABLE_BANKING_APP_ID` and `ENABLE_BANKING_KEY_FILE` are not set, or when
-Enable Banking or the bank refuses.
+balance. Every endpoint except the status returns 400 when
+`ENABLE_BANKING_APP_ID` and `ENABLE_BANKING_KEY_FILE` are not set, and 502 with
+an explanation when Enable Banking or the bank refuses.
 
 ### `GET /api/holdings/banks`
 ```json
@@ -364,8 +364,8 @@ address the browser landed on is pasted in. Returns
 
 ### `POST /api/holdings/banks/sync`
 Reads every linked bank whose consent is still valid and writes today's
-snapshot of its balances. An expired link is skipped and named in its
-`notes`. Returns `{"results": [...], "holdings": {...}}`.
+snapshot of its balances. An expired link, or one the bank refuses, comes back
+with `accounts: 0` and the reason in its `notes`; the other banks still sync. Returns `{"results": [...], "holdings": {...}}`.
 
 ### Also available
 `GET /api/holdings/accounts`, `GET /api/holdings/instruments` — the raw rows,

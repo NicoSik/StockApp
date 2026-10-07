@@ -119,6 +119,11 @@ public final class App {
                 Config.ENABLE_BANKING_APP_ID, keyFile(Config.ENABLE_BANKING_KEY_FILE));
         BankSyncService bankSync = new BankSyncService(enableBanking, new BankLinkRepo(db), accountRepo,
                 instrumentRepo, fxService, Config.ENABLE_BANKING_COUNTRY, Config.ENABLE_BANKING_REDIRECT_URL);
+        if (!Config.ENABLE_BANKING_APP_ID.isBlank() && !enableBanking.configured()) {
+            // Otherwise a mistyped path just makes the feature vanish without a word.
+            log.warn("Bank balances are off: ENABLE_BANKING_KEY_FILE ({}) is not a readable file.",
+                    Config.ENABLE_BANKING_KEY_FILE.isBlank() ? "not set" : Config.ENABLE_BANKING_KEY_FILE);
+        }
 
         portfolios.ensurePortfolio(PORTFOLIO_NAME, new BigDecimal(Config.PAPER_STARTING_CASH));
         seedWatchlist(stocks, watchlists);

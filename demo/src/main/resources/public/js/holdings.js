@@ -588,8 +588,9 @@ function bind(main) {
         try {
             const { results } = await api.syncBanks();
             for (const result of results) {
-                toast(`${result.bank}: ${result.accounts} account(s) synced.`, 'success');
-                (result.notes ?? []).forEach((note) => toast(note, 'info'));
+                // An expired or refused bank comes back with no accounts and a note saying why.
+                if (result.accounts > 0) toast(`${result.bank}: ${result.accounts} account(s) synced.`, 'success');
+                (result.notes ?? []).forEach((note) => toast(note, result.accounts > 0 ? 'info' : 'error'));
             }
             await renderHoldingsView(main);
         } catch (error) {

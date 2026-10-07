@@ -290,6 +290,7 @@ public final class AggregatorApi {
         ctx.contentType("text/html; charset=utf-8").result("""
                 <!doctype html><html lang="en"><head><meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
+                <meta name="color-scheme" content="light dark">
                 <title>Ticker</title></head>
                 <body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">
                 <h1 style="font-size:1.4rem">%s</h1><p>%s</p>
@@ -319,7 +320,7 @@ public final class AggregatorApi {
 
     private BankSyncService requireBanks() {
         if (!bankSync.configured()) {
-            throw new EnableBankingException("Bank balances are not configured. Set ENABLE_BANKING_APP_ID and "
+            throw new BadRequest("Bank balances are not configured. Set ENABLE_BANKING_APP_ID and "
                     + "ENABLE_BANKING_KEY_FILE in .env, then restart. See the README, Bank balances.");
         }
         return bankSync;

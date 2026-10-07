@@ -23,7 +23,7 @@ Holdings:
 - **`FxService`** — `toNok(amount, currency)`, `rate(currency)`, `latestRates()` (cached for an hour, stored rates as fallback); `rateHistory(from)` reads stored dated rates, `fetchRateHistory(…)` fetches and stores them.
 - **`Valuation`** — `compute(…)` produces every figure on the holdings page; `value(holding, …)` values one holding, live or as reported; `history(…)` values every day since the first import at that day's close and rate; `isPriceable(holding)` says which holdings get a market price. No I/O; tested.
 - **`ValuationService`** — `valueEverything()` feeds `Valuation` the cached prices and starts a background refresh; `history()` feeds it stored closes and rates.
-- **`BankSyncService`** — bank balances through Enable Banking: `connect(bank)` starts the BankID login, `complete(code, state)` / `completeFromUrl(url)` store the link and sync it, `syncAll()` writes each linked bank's balances as a snapshot, `links()` reports expiry.
+- **`BankSyncService`** — bank balances through Enable Banking: `connect(bank)` starts the BankID login, `complete(code, state)` / `completeFromUrl(url)` store the link and sync it, `syncAll()` writes each linked bank's balances as a snapshot, reporting an expired or refused bank without stopping the others; `links()` reports expiry.
 - **`HoldingsHistorySync`** — `refreshInBackground()` / `refresh()` fetch the closes and rates the history is missing; `missing(need, stored, today)` decides which date ranges those are.
 
 Shared:
