@@ -311,7 +311,9 @@ run also refetches the last few stored days, because a close taken while a
 session was open was a live price.
 
 What it cannot see is a trade made between imports: until the next import or
-sync, the curve values the holdings the last import described.
+sync, the curve values the holdings the last import described. For eToro the
+scheduler syncs once a day while the app runs, which keeps that window to a
+day; file imports stay as fresh as the last file.
 
 ### Two valuation paths, reported separately
 

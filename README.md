@@ -55,7 +55,8 @@ that finds nothing.
 
 eToro is the only one of the three offering a personal API. Add
 `ETORO_API_KEY` and `ETORO_USER_KEY` to `.env` (Settings → Trading → API Key
-Management, Read permission) and a **Sync eToro** button appears. Its holdings
+Management, Read permission) and a **Sync eToro** button appears. While the app
+runs, it also syncs eToro once a day after the US close. Its holdings
 are valued by eToro rather than re-priced here — an eToro account can mix plain
 shares with leveraged CFDs, shorts and copy portfolios, and only the first is
 something a share price could value. Leverage and short positions are labelled
@@ -83,6 +84,7 @@ in the table rather than shown as though they were ordinary stock.
   each day's closing price and exchange rate, from your first import to today.
   Trades made between imports appear at the next import or eToro sync, and
   anything without a market price stays at the value your broker reported.
+  With eToro keys set, eToro is synced once a day while the app runs.
 
 Broker exports live in `imports/`, which is gitignored.
 

@@ -124,7 +124,7 @@ public final class App {
                     String.format(Locale.ROOT, "%,d", stocks.count()));
         }
 
-        Scheduler scheduler = new Scheduler(alertService, alpacaSync, stocks, watchlists);
+        Scheduler scheduler = new Scheduler(alertService, alpacaSync, stocks, watchlists, etoroSync, historySync);
         scheduler.start();
         historySync.refreshInBackground();
 

@@ -4,9 +4,10 @@ The logic of both halves of the app, between `web/` and `repo/`.
 
 - **Paper trading:** `MarketData` (quotes, charts, sparklines), `AlpacaSync`
   (asset list and daily bars into the database), `PortfolioService`,
-  `AlertService`, `Scheduler`.
+  `AlertService`.
 - **Holdings:** `ImportService` (file → preview → snapshot), `EtoroSyncService`,
-  `FxService`, and `Valuation` + `ValuationService`.
+  `FxService`, `Valuation` + `ValuationService`, and `HoldingsHistorySync`.
+- **Both:** `Scheduler` runs the background jobs for each half.
 
 ## What's inside
 
@@ -15,7 +16,6 @@ Paper trading:
 - **`AlpacaSync`** — `syncAssets()` refreshes the asset table; `backfillDaily(stock, from)` stores daily bars; `ensureDailyCoverage(stock, from)` fetches only what is missing.
 - **`PortfolioService`** — `summary()`, `buy` / `sell` (fill at the last trade), `history(range)` (value curve rebuilt from the trade log), `positionFor(stock)`, `trades(limit)`, `reset()`.
 - **`AlertService`** — `evaluate()` fires every pending alert whose threshold was crossed.
-- **`Scheduler`** — `start()` / `close()`: alerts every minute; end-of-day bars and the asset sync once a day.
 
 Holdings:
 - **`ImportService`** — `preview(filename, bytes)` parses and resolves without writing; `previewFunds(account, broker, funds)` does the same for hand-entered funds; `commit(previewId, overrides, skip)` writes the snapshot and remembers settled matches. `aliasKeys(isin, ticker, name)` is the order a row's labels are remembered and looked up in.
@@ -26,6 +26,7 @@ Holdings:
 - **`HoldingsHistorySync`** — `refreshInBackground()` / `refresh()` fetch the closes and rates the history is missing; `missing(need, stored, today)` decides which date ranges those are.
 
 Shared:
+- **`Scheduler`** — `start()` / `close()`: alerts every minute; once a day, end-of-day bars, the asset sync, and the holdings day (an eToro sync when keys are set, then the history refresh). `runHoldingsDay(…)` keeps a failed eToro sync from skipping the refresh.
 - **`Cache`** — a small TTL map: `get(key, ttl, loader)`, `peek`, `peekStale`, `put`, `invalidate`.
 
 ## Not here

@@ -20,12 +20,15 @@ import java.util.concurrent.TimeUnit;
 /**
  * Background jobs.
  *
- * <p>Three of them:
+ * <p>Four of them:
  * <ul>
  *   <li><b>alerts</b> - every minute, so a crossed threshold is noticed while
  *       the user is looking at something else</li>
  *   <li><b>end-of-day bars</b> - once daily after the close, keeping stored
  *       history current for the portfolio chart and the offline fallback</li>
+ *   <li><b>holdings day</b> - once daily after the close: syncs eToro when
+ *       its keys are set, then fetches the closes and rates the holdings
+ *       value history is missing</li>
  *   <li><b>asset sync</b> - once daily, picking up new listings</li>
  * </ul>
  *
@@ -47,12 +50,17 @@ public final class Scheduler implements AutoCloseable {
     private final AlpacaSync alpacaSync;
     private final StockRepo stocks;
     private final WatchlistRepo watchlists;
+    private final EtoroSyncService etoroSync;
+    private final HoldingsHistorySync historySync;
 
-    public Scheduler(AlertService alerts, AlpacaSync alpacaSync, StockRepo stocks, WatchlistRepo watchlists) {
+    public Scheduler(AlertService alerts, AlpacaSync alpacaSync, StockRepo stocks, WatchlistRepo watchlists,
+                     EtoroSyncService etoroSync, HoldingsHistorySync historySync) {
         this.alerts = alerts;
         this.alpacaSync = alpacaSync;
         this.stocks = stocks;
         this.watchlists = watchlists;
+        this.etoroSync = etoroSync;
+        this.historySync = historySync;
         this.executor = Executors.newScheduledThreadPool(2, runnable -> {
             Thread thread = new Thread(runnable, "ticker-scheduler");
             // Daemon: a background job must never keep the JVM alive on Ctrl-C.
@@ -66,6 +74,7 @@ public final class Scheduler implements AutoCloseable {
                 guarded("alerts", this::evaluateAlerts), 30, 60, TimeUnit.SECONDS);
 
         scheduleDaily("end-of-day bars", END_OF_DAY_JOB, this::refreshWatchedHistory);
+        scheduleDaily("holdings day", END_OF_DAY_JOB, this::holdingsDay);
         scheduleDaily("asset sync", ASSET_SYNC_JOB, alpacaSync::syncAssets);
 
         log.info("Alerts every 60s; daily jobs at {} and {} {}", END_OF_DAY_JOB, ASSET_SYNC_JOB, MARKET_ZONE.getId());
@@ -73,6 +82,33 @@ public final class Scheduler implements AutoCloseable {
 
     private void evaluateAlerts() {
         alerts.evaluate();
+    }
+
+    /**
+     * Syncs eToro, so its positions are a day old at most rather than as old
+     * as the last time someone pressed the button, then fills in the history.
+     */
+    private void holdingsDay() {
+        runHoldingsDay(etoroSync.configured(), () -> {
+            EtoroSyncService.Result result = etoroSync.sync();
+            log.info("Daily eToro sync: {} positions, {} kr", result.positions(), result.totalNok());
+        }, historySync::refresh);
+    }
+
+    /**
+     * The holdings day's two steps, in order. A failed eToro sync is logged and
+     * the history is refreshed anyway: bad keys or a stall must not cost the
+     * other accounts their day of history.
+     */
+    static void runHoldingsDay(boolean etoroConfigured, Runnable etoroSync, Runnable historyRefresh) {
+        if (etoroConfigured) {
+            try {
+                etoroSync.run();
+            } catch (RuntimeException e) {
+                log.warn("Daily eToro sync failed: {}", e.getMessage());
+            }
+        }
+        historyRefresh.run();
     }
 
     /** Tops up stored daily bars for everything the user watches or holds. */
