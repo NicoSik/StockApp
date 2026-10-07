@@ -67,6 +67,7 @@ public final class ImportService {
     public record PreviewRow(int index,
                              String name,
                              String ticker,
+                             String isin,
                              String currency,
                              BigDecimal quantity,
                              BigDecimal avgCost,
@@ -156,6 +157,7 @@ public final class ImportService {
 
             holdings.add(new ParsedHolding(
                     fund.name().trim(),
+                    null,
                     fund.isin() == null || fund.isin().isBlank() ? null : fund.isin().trim(),
                     FUND_CURRENCY, units, avgCost, nav, fund.valueNok(), fund.valueNok()));
         }
@@ -180,15 +182,14 @@ public final class ImportService {
 
         for (int i = 0; i < export.holdings().size(); i++) {
             ParsedHolding holding = export.holdings().get(i);
-            String alias = aliasFor(holding);
 
             // A remembered mapping short-circuits the lookup - but only if it
             // was actually verified. An unverified alias is a guess someone
             // declined to endorse, and treating it as settled would make a
             // rejected match permanent and invisible on every later import.
-            Optional<InstrumentRepo.Instrument> known = instruments.findByAlias(export.broker(), alias);
-            if (known.isPresent() && known.get().verified()) {
-                rows.add(new PreviewRow(i, holding.name(), holding.ticker(), holding.currency(),
+            Optional<InstrumentRepo.Instrument> known = findKnown(export.broker(), holding);
+            if (known.isPresent()) {
+                rows.add(new PreviewRow(i, holding.name(), holding.ticker(), holding.isin(), holding.currency(),
                         holding.quantity(), holding.avgCost(), holding.lastPrice(), holding.valueNok(),
                         "CONFIRMED", known.get().symbol(), known.get().name(), null,
                         "Previously mapped", true));
@@ -197,14 +198,14 @@ public final class ImportService {
             }
 
             InstrumentResolver.Resolution resolution = resolver.resolve(
-                    holding.ticker(), holding.name(), holding.currency(), holding.lastPrice());
+                    holding.ticker(), holding.isin(), holding.name(), holding.currency(), holding.lastPrice());
 
             switch (resolution.status()) {
                 case CONFIRMED -> confirmed++;
                 case NEEDS_REVIEW -> review++;
                 case UNRESOLVED -> unresolved++;
             }
-            rows.add(new PreviewRow(i, holding.name(), holding.ticker(), holding.currency(),
+            rows.add(new PreviewRow(i, holding.name(), holding.ticker(), holding.isin(), holding.currency(),
                     holding.quantity(), holding.avgCost(), holding.lastPrice(), holding.valueNok(),
                     resolution.status().name(), resolution.symbol(), resolution.name(),
                     resolution.livePrice(), resolution.note(), false));
@@ -313,15 +314,39 @@ public final class ImportService {
 
     // ---------------------------------------------------------------- helpers
 
-    /** The broker's own label: its ticker where it has one, else the name. */
-    private static String aliasFor(ParsedHolding holding) {
-        return holding.ticker() != null && !holding.ticker().isBlank()
-                ? holding.ticker().trim()
-                : holding.name().trim();
+    /**
+     * The labels a row can be remembered under, strongest first: its ISIN, its
+     * ticker, then its name.
+     *
+     * <p>A new match is stored under the first. Lookups try them all, so a
+     * match remembered under a name before a file carried an ISIN is still
+     * found - re-importing with the ISIN does not throw away a choice a person
+     * already confirmed.
+     */
+    static List<String> aliasKeys(String isin, String ticker, String name) {
+        List<String> keys = new ArrayList<>(3);
+        for (String key : new String[] {isin, ticker, name}) {
+            if (key != null && !key.isBlank() && !keys.contains(key.trim())) {
+                keys.add(key.trim());
+            }
+        }
+        return keys;
     }
 
+    /** A verified instrument this row was mapped to before, under any of its labels. */
+    private Optional<InstrumentRepo.Instrument> findKnown(String broker, ParsedHolding holding) {
+        for (String key : aliasKeys(holding.isin(), holding.ticker(), holding.name())) {
+            Optional<InstrumentRepo.Instrument> known = instruments.findByAlias(broker, key);
+            if (known.isPresent() && known.get().verified()) {
+                return known;
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** The label a confirmed row is remembered under. */
     private static String aliasFor(PreviewRow row) {
-        return row.ticker() != null && !row.ticker().isBlank() ? row.ticker().trim() : row.name().trim();
+        return aliasKeys(row.isin(), row.ticker(), row.name()).get(0);
     }
 
     private static String defaultAccountName(String broker) {
