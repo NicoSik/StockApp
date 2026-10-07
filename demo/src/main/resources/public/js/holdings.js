@@ -212,6 +212,12 @@ function heroChange(data) {
     return parts.join('<span class="hero__change-label"> · </span>');
 }
 
+/** The broker name the server gives every bank linked through Enable Banking. */
+const BANK_BROKER = 'BANK';
+
+/** A bank balance synced within this many days is current: the sync runs daily. */
+const BANK_FRESH_DAYS = 1;
+
 /**
  * Says how much of the total is live and, for the rest, when each broker
  * actually valued it.
@@ -220,33 +226,81 @@ function heroChange(data) {
  * all accounts. Once eToro synced, 99% of the not-live money was hours old and
  * was still being labelled with a week-old Nordnet import date. One date cannot
  * describe several accounts, so each is named with its own.
+ *
+ * <p>Bank balances are left out of "priced live". A balance is exact, not a
+ * broker's estimate waiting for a quote, so counting it as not-live made a
+ * freshly synced bank read as stale. The percentage is taken over the market
+ * holdings alone, and a bank is only named when its last sync is old.
  */
 function freshnessBanner(data) {
-    const live = Number(data.livePercent) || 0;
-    if (live >= 99.95) {
-        return '<p class="note" style="margin-top:var(--space-3)">Everything priced live.</p>';
-    }
-    // Which accounts the not-live money actually belongs to, newest first.
-    const sources = (data.accounts ?? [])
-        .filter((a) => !a.simulated)
-        .map((a) => ({
-            name: a.name,
-            asOf: a.asOf,
-            value: (a.holdings ?? []).filter((h) => !h.live)
-                .reduce((sum, h) => sum + (Number(h.valueNok) || 0), 0),
-        }))
+    const accounts = (data.accounts ?? []).filter((a) => !a.simulated);
+    const notLive = (a) => (a.holdings ?? []).filter((h) => !h.live)
+        .reduce((sum, h) => sum + (Number(h.valueNok) || 0), 0);
+    const banks = accounts.filter(isBankAccount);
+    const bankNok = banks.reduce((sum, a) => sum + (Number(a.valueNok) || 0), 0);
+    const marketNok = (Number(data.totalNok) || 0) - bankNok;
+    const live = marketNok > 0 ? (100 * (Number(data.liveNok) || 0)) / marketNok : 100;
+
+    // Which market accounts the not-live money belongs to, largest first.
+    const sources = accounts
+        .filter((a) => !isBankAccount(a))
+        .map((a) => ({ name: a.name, asOf: a.asOf, value: notLive(a) }))
         .filter((a) => a.value > 0)
         .sort((a, b) => b.value - a.value);
+    const reportedNok = sources.reduce((sum, a) => sum + a.value, 0);
+    const staleBanks = banks.filter((a) => daysSince(a.asOf) > BANK_FRESH_DAYS);
 
-    const detail = sources.length
-        ? sources.map((a) => `${escapeHtml(a.name)} ${describeAsOf(a.asOf)}`).join(', ')
-        : '';
+    const parts = [];
+    if (live < 99.95 && reportedNok > 0) {
+        parts.push(`${live.toFixed(0)}% priced live · ${kr(reportedNok)} valued by the broker itself — ${
+            sources.map((a) => `${escapeHtml(a.name)} ${describeAsOf(a.asOf)}`).join(', ')
+        }. Those are the values your broker reported, not a live quote.`);
+    }
+    if (staleBanks.length) {
+        parts.push(`Old bank balances: ${
+            staleBanks.map((a) => `${escapeHtml(a.name)} last synced ${describeAsOf(a.asOf)}`).join(', ')
+        }. Sync banks, or connect a bank again if its consent has run out.`);
+    }
+    if (parts.length) {
+        return `<p class="banner" style="margin-top:var(--space-4)"><span>${parts.join(' ')}</span></p>`;
+    }
+    const synced = banks.length ? ` Bank balances synced ${describeAsOf(newest(banks.map((a) => a.asOf)))}.` : '';
+    return `<p class="note" style="margin-top:var(--space-3)">${
+        marketNok > 0 ? 'Everything priced live.' : ''}${synced}</p>`;
+}
 
-    return `<p class="banner" style="margin-top:var(--space-4)">
-        <span>${live.toFixed(0)}% priced live · ${kr(data.asOfNok)} valued by the broker itself${
-            detail ? ` — ${detail}` : ''
-        }. Those are the values your broker reported, not a live quote.</span>
-    </p>`;
+/** Whether an account holds bank balances rather than market holdings. */
+function isBankAccount(account) {
+    return account?.broker === BANK_BROKER;
+}
+
+/** Whole days from an ISO date to today; Infinity when there is no date. */
+function daysSince(isoDate) {
+    if (!isoDate) return Infinity;
+    const then = new Date(`${isoDate}T00:00:00`);
+    const today = new Date();
+    return Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()) - then) / 86400000);
+}
+
+/** The latest of some ISO dates; ISO dates sort as strings. */
+function newest(isoDates) {
+    return isoDates.filter(Boolean).sort().at(-1) ?? null;
+}
+
+/**
+ * Where a row's value comes from: a live quote, a bank balance, or the
+ * broker's figure with its date. A balance is neither live nor an estimate, so
+ * it gets a neutral chip; it turns into a dated one only once its sync is old.
+ */
+function priceChip(holding) {
+    if (holding.live) {
+        return '<span class="side-chip" data-side="BUY">live</span>';
+    }
+    const asOf = accountAsOf(holding.accountName);
+    if (isBankAccount(accountsByName.get(holding.accountName)) && daysSince(asOf) <= BANK_FRESH_DAYS) {
+        return '<span class="side-chip" data-side="NONE">balance</span>';
+    }
+    return `<span class="side-chip" data-side="SELL">as of ${escapeHtml(describeAsOf(asOf))}</span>`;
 }
 
 /** The date the named account was last valued, for a row-level label. */
@@ -257,9 +311,7 @@ function accountAsOf(accountName) {
 /** "today", "yesterday", or the date - a date alone reads as staler than it is. */
 function describeAsOf(isoDate) {
     if (!isoDate) return 'date unknown';
-    const then = new Date(`${isoDate}T00:00:00`);
-    const today = new Date();
-    const days = Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()) - then) / 86400000);
+    const days = daysSince(isoDate);
     if (days <= 0) return 'today';
     if (days === 1) return 'yesterday';
     if (days < 7) return `${days} days ago`;
@@ -495,10 +547,7 @@ function holdingRow(holding) {
         <td class="num ${gainDir}">${holding.gainNok !== null && holding.gainNok !== undefined
             ? `${kr(holding.gainNok)} (${fmt.signedPercent(holding.gainPercent)})` : fmt.EMPTY}</td>
         <td class="num">${fmt.percent(holding.weight)}</td>
-        <td>${holding.live
-            ? '<span class="side-chip" data-side="BUY">live</span>'
-            : `<span class="side-chip" data-side="SELL">as of ${
-                escapeHtml(describeAsOf(accountAsOf(holding.accountName)))}</span>`}</td>
+        <td>${priceChip(holding)}</td>
     </tr>`;
 }
 
