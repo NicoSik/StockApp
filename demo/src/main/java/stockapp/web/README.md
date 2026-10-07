@@ -29,3 +29,5 @@ endpoint is documented in `docs/API.md`.
 - The `/api/*` catch-all is registered last, so an unknown path gets a JSON 404
   instead of the single-page app's `index.html`.
 - A new or changed endpoint is updated in `docs/API.md` in the same change.
+  `ApiDocsTest` fails the build when a registered route is missing from the
+  doc, or the doc names a route that no longer exists.

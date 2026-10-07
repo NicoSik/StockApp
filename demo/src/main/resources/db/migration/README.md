@@ -23,6 +23,8 @@ startup, each in its own transaction, and records them in `schema_migration`.
 1. Create the next file: `V0NN__what_it_does.sql`.
 2. Append its filename to `MIGRATIONS` in `stockapp/Db.java`. The list is
    explicit because a shaded jar cannot list a classpath directory.
+   `MigrationsTest` fails the build if a file is missing from the list, or the
+   numbering has a gap.
 3. Start the app; the log says `Applied migration V0NN__…`.
 
 ## Rules
