@@ -55,7 +55,8 @@ that finds nothing.
 
 eToro is the only one of the three offering a personal API. Add
 `ETORO_API_KEY` and `ETORO_USER_KEY` to `.env` (Settings → Trading → API Key
-Management, Read permission) and a **Sync eToro** button appears. Its holdings
+Management, Read permission) and a **Sync eToro** button appears. While the app
+runs, it also syncs eToro once a day after the US close. Its holdings
 are valued by eToro rather than re-priced here — an eToro account can mix plain
 shares with leveraged CFDs, shorts and copy portfolios, and only the first is
 something a share price could value. Leverage and short positions are labelled
@@ -78,8 +79,12 @@ in the table rather than shown as though they were ordinary stock.
   which is what caught a Nordnet line called "AEye A" resolving to AudioEye
   (`AEYE`) when the holding was AEye Inc (`LIDR`).
 - **Imports are reversible.** Each one writes a dated snapshot rather than
-  editing holdings, so re-importing is safe and a value history builds up for
-  free.
+  editing holdings, so re-importing is safe.
+- **A value history for every day.** The chart values your latest import at
+  each day's closing price and exchange rate, from your first import to today.
+  Trades made between imports appear at the next import or eToro sync, and
+  anything without a market price stays at the value your broker reported.
+  With eToro keys set, eToro is synced once a day while the app runs.
 
 Broker exports live in `imports/`, which is gitignored.
 
@@ -151,7 +156,8 @@ browser ── /api/* JSON ──▶ Javalin ──▶ services ──┬──�
   curve and act as the offline fallback when Alpaca is unreachable.
 - **Holdings** are stored as a dated snapshot per account. Their live prices
   are cached for a minute and refreshed in the background, so the page never
-  waits on Yahoo.
+  waits on Yahoo. Daily closes and exchange rates are stored too, and the value
+  history is rebuilt from them.
 - **Your data** — watchlists, trades, positions, alerts, holdings — lives only
   in your database.
 

@@ -14,6 +14,8 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 
 /** Stores Norges Bank rates so the app can still value a portfolio offline. */
 public final class FxRepo {
@@ -47,6 +49,37 @@ public final class FxRepo {
             // break a valuation that already has the numbers in hand.
             log.warn("Could not cache rates: {}", e.getMessage());
         }
+    }
+
+    /** Stores a series of dated rates per currency, replacing any already stored. */
+    public void saveHistory(Map<String, NavigableMap<LocalDate, BigDecimal>> history) {
+        Map<LocalDate, Map<String, BigDecimal>> byDate = new TreeMap<>();
+        history.forEach((currency, series) -> series.forEach((day, rate) ->
+                byDate.computeIfAbsent(day, d -> new LinkedHashMap<>()).put(currency, rate)));
+        byDate.forEach(this::save);
+    }
+
+    /** Every stored rate from {@code from} onwards, per currency, oldest first. */
+    public Map<String, NavigableMap<LocalDate, BigDecimal>> history(LocalDate from) {
+        String sql = """
+                SELECT base, as_of, rate FROM fx_rate
+                 WHERE quote = 'NOK' AND as_of >= ?
+                 ORDER BY base, as_of
+                """;
+        Map<String, NavigableMap<LocalDate, BigDecimal>> history = new LinkedHashMap<>();
+        try (Connection conn = db.connection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setDate(1, Date.valueOf(from));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    history.computeIfAbsent(rs.getString("base"), base -> new TreeMap<>())
+                            .put(rs.getDate("as_of").toLocalDate(), rs.getBigDecimal("rate"));
+                }
+            }
+        } catch (SQLException e) {
+            log.warn("Could not read stored rate history: {}", e.getMessage());
+        }
+        return history;
     }
 
     /** The most recently stored rate per currency, whatever date it came from. */

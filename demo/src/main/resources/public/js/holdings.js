@@ -42,6 +42,8 @@ let fixingRow = null;
 let searchTimer = null;
 
 let chart = null;
+/** The figures the header shows when nothing is scrubbed; kept current by price refreshes. */
+let shown = null;
 
 /** Called by the router before leaving, so the canvas listeners do not leak. */
 export function teardownHoldingsChart() {
@@ -126,13 +128,14 @@ function markup(data, history, etoro) {
                 <div class="chart__tooltip" id="h-tooltip" aria-hidden="true"></div>
                 <div class="chart__price-tag" id="h-price-tag" aria-hidden="true"></div>
                 <div class="chart__empty" id="h-chart-empty"${history.points?.length > 1 ? ' hidden' : ''}>
-                    ${history.points?.length > 1 ? '' : 'Your value chart builds up as you import over time — one point per import.'}
+                    ${history.points?.length > 1 ? '' : 'Your value chart starts at your first import and fills in as prices are fetched.'}
                 </div>
             </div>
             ${history.points?.length > 1 ? `
                 <p class="note" style="margin-top:var(--space-2)">
-                    One point per import, at the value your broker reported that day — so the
-                    latest point will not match the live figure above exactly.
+                    Each day values your latest import at that day's closing price. Trades made
+                    between imports show up at the next import or eToro sync, and anything
+                    without a market price stays at the value your broker reported.
                 </p>` : ''}
 
 
@@ -501,16 +504,14 @@ function emptyState() {
 // ===================================================================== chart
 
 /**
- * Plots combined value per snapshot date.
- *
- * <p>Two points are enough for a line, and two points is what you have after a
- * second import - so the chart earns its place immediately rather than after
- * weeks of history.
+ * Plots the combined value on each day since the first import, as the server
+ * rebuilds it from daily closes.
  */
 function mountChart(data, history) {
+    shown = data;
     const canvas = qs('#h-canvas');
     const points = (history.points ?? [])
-        // Anchored to midday UTC, not midnight. A snapshot carries a calendar
+        // Anchored to midday UTC, not midnight. Each point carries a calendar
         // date, but the chart's labels are formatted in market time - and
         // "2026-08-11" parsed as UTC midnight is the evening of the 10th in New
         // York, so every point would display a day early. Midday leaves no
@@ -526,18 +527,36 @@ function mountChart(data, history) {
         formatValue: (value) => kr(value),
         onScrub: (info) => {
             const total = qs('#h-total');
-            const label = qs('#h-total-label');
+            const change = qs('#h-change');
             if (info) {
                 if (total) total.textContent = kr(info.price);
-                if (label) label.textContent = 'on this date';
+                if (change) setHtml(change, scrubbedChange(points, info.index));
             } else {
-                if (total) total.textContent = kr(data.totalNok);
-                if (label) label.textContent = data.gainNok !== null && data.gainNok !== undefined
-                    ? 'where cost basis is known' : 'Combined value in NOK';
+                if (total) total.textContent = kr(shown.totalNok);
+                if (change) setHtml(change, heroChange(shown));
             }
         },
     });
     chart.setData({ points, baseline: points[0].close, range: '1Y' });
+}
+
+/**
+ * The header's change line for a scrubbed day: the move from the trading day
+ * before it, labelled "that day" the way the live line says "today".
+ *
+ * <p>The cost-basis gain is left out. It is only known for today, and keeping
+ * it beside a past day's value would read as that day's gain.
+ */
+function scrubbedChange(points, index) {
+    const previous = points[index - 1];
+    if (!previous) {
+        return '<span class="hero__change-label">the first day on the chart</span>';
+    }
+    const change = points[index].close - previous.close;
+    const pct = previous.close ? (100 * change) / previous.close : null;
+    return `<span class="${fmt.direction(change)}">${fmt.arrow(change)} ${kr(change)}${
+        pct === null ? '' : ` (${fmt.signedPercent(pct)})`}</span>
+        <span class="hero__change-label">that day</span>`;
 }
 
 // =============================================================== interaction
@@ -633,8 +652,8 @@ let refreshAttempts = 0;
  * Re-fetches while the server says prices are still being refreshed.
  *
  * <p>Only the figures are replaced - the chart is left untouched, because it
- * plots snapshot history and no live price can move it. Rebuilding it would
- * throw away the crosshair and any scrub in progress for no reason.
+ * plots daily closes and a live price refresh does not change them. Rebuilding
+ * it would throw away the crosshair and any scrub in progress for no reason.
  */
 function schedulePriceRefresh(data) {
     clearTimeout(refreshTimer);
@@ -673,11 +692,16 @@ function applyPriceUpdate(data) {
         activeAccount = null;
     }
 
-    const total = qs('#h-total');
-    if (total) total.textContent = kr(data.totalNok);
+    // Do not fight the user: while a day is scrubbed the header shows that
+    // day, and releasing the chart restores these figures from `shown`.
+    shown = data;
+    if (chart?.activeIndex === null || chart?.activeIndex === undefined) {
+        const total = qs('#h-total');
+        if (total) total.textContent = kr(data.totalNok);
 
-    const change = qs('#h-change');
-    if (change) setHtml(change, heroChange(data));
+        const change = qs('#h-change');
+        if (change) setHtml(change, heroChange(data));
+    }
 
     const freshness = qs('#h-freshness');
     if (freshness) setHtml(freshness, freshnessBanner(data));

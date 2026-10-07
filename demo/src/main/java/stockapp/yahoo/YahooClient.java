@@ -13,11 +13,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.time.DateTimeException;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.NavigableMap;
 import java.util.Optional;
+import java.util.TreeMap;
 
 /**
  * Prices for everything Alpaca cannot reach: Oslo Børs, Stockholm, ETFs and
@@ -113,6 +120,96 @@ public final class YahooClient {
                         : optDouble(meta, "regularMarketTime") * 1000),
                 // Yahoo names it chartPreviousClose on this endpoint.
                 optDouble(meta, "chartPreviousClose")));
+    }
+
+    // ------------------------------------------------------------ history
+
+    /**
+     * Daily closes for one symbol between two dates, inclusive, keyed by the
+     * trading date on the symbol's own exchange. Empty when Yahoo has nothing.
+     */
+    public NavigableMap<LocalDate, Double> dailyCloses(String symbol, LocalDate from, LocalDate to) {
+        if (symbol == null || symbol.isBlank() || to.isBefore(from)) {
+            return new TreeMap<>();
+        }
+        // A day of margin either side in UTC, so no exchange time zone can push
+        // a session out of the window. The result is trimmed back to the range.
+        long start = from.minusDays(1).atStartOfDay(ZoneOffset.UTC).toEpochSecond();
+        long end = to.plusDays(2).atStartOfDay(ZoneOffset.UTC).toEpochSecond();
+        HttpUrl url = HttpUrl.parse(QUOTE_HOST + "/v8/finance/chart/" + symbol.trim())
+                .newBuilder()
+                .addQueryParameter("interval", "1d")
+                .addQueryParameter("period1", Long.toString(start))
+                .addQueryParameter("period2", Long.toString(end))
+                .build();
+
+        JsonObject json = get(url);
+        if (json == null) {
+            return new TreeMap<>();
+        }
+        return new TreeMap<>(parseDailyCloses(json).subMap(from, true, to, true));
+    }
+
+    /**
+     * Reads the closes out of a chart response.
+     *
+     * <p>Each timestamp is the start of a session, so it is dated in the
+     * exchange's own time zone, not UTC: a fund priced at midnight in Dublin is
+     * stamped 23:00 UTC the day before. Days without a close - funds report
+     * null on days they did not price - are skipped.
+     */
+    static NavigableMap<LocalDate, Double> parseDailyCloses(JsonObject json) {
+        NavigableMap<LocalDate, Double> closes = new TreeMap<>();
+        JsonObject chart = optObject(json, "chart");
+        if (chart == null || !chart.has("result") || !chart.get("result").isJsonArray()) {
+            return closes;
+        }
+        JsonArray results = chart.getAsJsonArray("result");
+        if (results.isEmpty() || !results.get(0).isJsonObject()) {
+            return closes;
+        }
+        JsonObject result = results.get(0).getAsJsonObject();
+        JsonObject indicators = optObject(result, "indicators");
+        if (!result.has("timestamp") || !result.get("timestamp").isJsonArray()
+                || indicators == null || !indicators.has("quote") || !indicators.get("quote").isJsonArray()
+                || indicators.getAsJsonArray("quote").isEmpty()) {
+            return closes;
+        }
+        JsonObject quote = indicators.getAsJsonArray("quote").get(0).getAsJsonObject();
+        if (!quote.has("close") || !quote.get("close").isJsonArray()) {
+            return closes;
+        }
+
+        ZoneId zone = exchangeZone(optObject(result, "meta"));
+        JsonArray timestamps = result.getAsJsonArray("timestamp");
+        JsonArray values = quote.getAsJsonArray("close");
+        for (int i = 0; i < Math.min(timestamps.size(), values.size()); i++) {
+            if (values.get(i).isJsonNull() || timestamps.get(i).isJsonNull()) {
+                continue;
+            }
+            LocalDate day = Instant.ofEpochSecond(timestamps.get(i).getAsLong()).atZone(zone).toLocalDate();
+            closes.put(day, values.get(i).getAsDouble());
+        }
+        return closes;
+    }
+
+    /** The exchange's time zone; its current UTC offset if unnamed; UTC as a last resort. */
+    private static ZoneId exchangeZone(JsonObject meta) {
+        if (meta != null) {
+            String name = optString(meta, "exchangeTimezoneName", "");
+            if (!name.isBlank()) {
+                try {
+                    return ZoneId.of(name);
+                } catch (DateTimeException e) {
+                    // An unknown name; fall through to the offset.
+                }
+            }
+            Double offset = optDouble(meta, "gmtoffset");
+            if (offset != null) {
+                return ZoneOffset.ofTotalSeconds(offset.intValue());
+            }
+        }
+        return ZoneOffset.UTC;
     }
 
     // ----------------------------------------------------------------- search

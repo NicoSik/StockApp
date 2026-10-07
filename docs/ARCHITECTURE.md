@@ -88,6 +88,7 @@ This is the decision most of the design hangs off.
 | Quotes | Memory, 15 s TTL | Same |
 | Sparklines | Memory, 30 s TTL | Derived from a single batched bars call |
 | Watchlists, trades, positions, alerts | PostgreSQL | Yours; must survive a restart |
+| Daily closes and rates for holdings | PostgreSQL | The value history is rebuilt from them without waiting on the network |
 
 Persisting intraday bars was considered and rejected. It would add millions of
 rows a month for data that nothing reads after the chart is painted, and the
@@ -289,10 +290,30 @@ while a snapshot taken under it stays in the database forever.
 ### Snapshots, not mutations
 
 An import writes a whole dated snapshot. Re-importing replaces that date
-cleanly, an undo is a delete, and a value history accumulates without needing
-transaction data — which matters, because neither broker exports transactions
-this app could rebuild history from. DNB's "Mine ordre" is twelve months of
-orders and cannot describe current positions, so it is detected and rejected.
+cleanly, and an undo is a delete. Neither broker exports transactions this app
+could rebuild history from: DNB's "Mine ordre" is twelve months of orders and
+cannot describe current positions, so it is detected and rejected.
+
+### A value history from closes, not from imports
+
+The history chart is rebuilt, not stored, the same way the paper portfolio's
+curve is rebuilt from its trade log. For each trading day since the first
+import, every real account's snapshot in force that day is valued at that day's
+close and Norges Bank rate, through the same `Valuation.value` the live total
+uses — so today's point equals the headline figure. A missing close or rate
+carries the last one forward; anything without a price keeps its reported
+value.
+
+The closes (`instrument_close`) and rates (`fx_rate`) are stored, so the chart
+reads only the database. `HoldingsHistorySync` fetches what is missing in the
+background: at startup, after every import or eToro sync, and once a day. Each
+run also refetches the last few stored days, because a close taken while a
+session was open was a live price.
+
+What it cannot see is a trade made between imports: until the next import or
+sync, the curve values the holdings the last import described. For eToro the
+scheduler syncs once a day while the app runs, which keeps that window to a
+day; file imports stay as fresh as the last file.
 
 ### Two valuation paths, reported separately
 

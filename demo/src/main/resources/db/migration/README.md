@@ -17,6 +17,7 @@ startup, each in its own transaction, and records them in `schema_migration`.
 | `V008__linked_accounts` | API-linked accounts and `instrument.external_id`, for eToro |
 | `V009__simulated_accounts` | `account.simulated` |
 | `V010__snapshot_cost_basis` | a broker's portfolio-level cost basis on `snapshot` |
+| `V011__instrument_close` | `instrument_close`: daily closes for priced holdings, keyed by symbol |
 
 ## Adding one
 
