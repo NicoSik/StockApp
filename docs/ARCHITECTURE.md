@@ -348,11 +348,14 @@ Bank rate. Everything else keeps the value its broker reported, with the date
 attached. The split is surfaced in the total rather than blurred, because
 presenting an old broker figure as current is a small lie that compounds.
 
-Bank balances are the exception the page makes. A balance has no market price,
-so the server counts it as not live, but it is not an estimate either: it is
-exact as of its last sync. The holdings page therefore takes "priced live" over
-the market holdings alone and leaves a bank out of the warning, until its
-balances are more than a day old, when the bank is named with that date.
+Bank balances are kept apart from both paths. A balance is cash, not an
+investment: it counts towards the total, which is a net worth, but `Valuation`
+measures everything about the investments without it - their own total, the
+live share, each holding's weight - and returns the balances in a separate
+list. Otherwise a large balance would shrink every weight and read as unpriced
+money, when it is exact as of its last sync. The holdings page shows them in
+their own Cash table, and names a bank in its warning only once its balances
+are more than a day old.
 
 The sums live in `Valuation`, which does no I/O and is unit-tested.
 `ValuationService` feeds it whatever prices are cached, however old, and

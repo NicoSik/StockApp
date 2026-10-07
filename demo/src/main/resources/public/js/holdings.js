@@ -96,7 +96,7 @@ export async function renderHoldingsView(main) {
 // ==================================================================== markup
 
 function markup(data, history, etoro, banks) {
-    const empty = !data.holdings || data.holdings.length === 0;
+    const empty = !data.holdings?.length && !data.cash?.length;
     const gainDir = fmt.direction(data.gainNok);
 
     return `
@@ -105,6 +105,7 @@ function markup(data, history, etoro, banks) {
         <h1 class="hero__symbol" id="holdings-heading">Holdings</h1>
         <p class="hero__price" id="h-total">${kr(data.totalNok)}</p>
         <p class="hero__change" id="h-change">${heroChange(data)}</p>
+        <p class="note" id="h-split"${splitLine(data) ? '' : ' hidden'}>${splitLine(data)}</p>
 
         <div id="h-freshness">${empty ? '' : freshnessBanner(data)}</div>
 
@@ -159,13 +160,24 @@ function markup(data, history, etoro, banks) {
                     left out of the total — it is not real.
                 </p>` : ''}
 
+            ${data.holdings?.length ? `
             <section class="section">
                 <div class="section__head" id="h-table-head">${tableHeading()}</div>
                 <div class="table__wrap"><table class="table">
                     <thead><tr>${SORT_COLUMNS.map(headerCell).join('')}</tr></thead>
                     <tbody id="h-rows">${sortHoldings(visibleHoldings()).map(holdingRow).join('')}</tbody>
                 </table></div>
-            </section>
+            </section>` : ''}
+
+            ${data.cash?.length ? `
+            <section class="section" aria-labelledby="h-cash-heading">
+                <div class="section__head" id="h-cash-head">${cashHeading(data)}</div>
+                <div class="table__wrap"><table class="table">
+                    <thead><tr><th>Account</th><th>Bank</th><th class="num">Balance</th>
+                        <th class="num">Value</th><th>Synced</th></tr></thead>
+                    <tbody id="h-cash-rows">${data.cash.map(cashRow).join('')}</tbody>
+                </table></div>
+            </section>` : ''}
         `}
 
         <div class="palette-backdrop" id="h-import-backdrop" hidden>
@@ -191,7 +203,9 @@ function heroChange(data) {
     if (data.dayChangeNok !== null && data.dayChangeNok !== undefined) {
         const dir = fmt.direction(data.dayChangeNok);
         const base = Number(data.dayChangeBaseNok) || 0;
-        const share = Number(data.totalNok) > 0 ? (100 * base) / Number(data.totalNok) : 0;
+        // Of the investments: cash never moves, so it is not "unpriced".
+        const invested = Number(data.investmentsNok ?? data.totalNok) || 0;
+        const share = invested > 0 ? (100 * base) / invested : 0;
         const pct = base > 0 ? (100 * Number(data.dayChangeNok)) / base : null;
         parts.push(`<span class="${dir}">${fmt.arrow(data.dayChangeNok)} ${kr(data.dayChangeNok)}${
             pct === null ? '' : ` (${fmt.signedPercent(pct)})`}</span>
@@ -227,19 +241,18 @@ const BANK_FRESH_DAYS = 1;
  * was still being labelled with a week-old Nordnet import date. One date cannot
  * describe several accounts, so each is named with its own.
  *
- * <p>Bank balances are left out of "priced live". A balance is exact, not a
- * broker's estimate waiting for a quote, so counting it as not-live made a
- * freshly synced bank read as stale. The percentage is taken over the market
- * holdings alone, and a bank is only named when its last sync is old.
+ * <p>Bank balances are left out of "priced live" - the server measures it over
+ * the investments alone. A balance is exact, not a broker's estimate waiting
+ * for a quote, so a bank is only named here when its last sync is old.
  */
 function freshnessBanner(data) {
     const accounts = (data.accounts ?? []).filter((a) => !a.simulated);
     const notLive = (a) => (a.holdings ?? []).filter((h) => !h.live)
         .reduce((sum, h) => sum + (Number(h.valueNok) || 0), 0);
     const banks = accounts.filter(isBankAccount);
-    const bankNok = banks.reduce((sum, a) => sum + (Number(a.valueNok) || 0), 0);
-    const marketNok = (Number(data.totalNok) || 0) - bankNok;
-    const live = marketNok > 0 ? (100 * (Number(data.liveNok) || 0)) / marketNok : 100;
+    const marketNok = Number(data.investmentsNok) || 0;
+    // Measured by the server over the investments alone.
+    const live = Number(data.livePercent) || 0;
 
     // Which market accounts the not-live money belongs to, largest first.
     const sources = accounts
@@ -319,6 +332,53 @@ function describeAsOf(isoDate) {
 }
 
 /**
+ * What the total is made of, when it is part investments and part cash. The
+ * headline stays the whole net worth; this says how much of it is invested.
+ * With only one of the two the total already says it, so the line is empty.
+ */
+function splitLine(data) {
+    if (!(Number(data.cashNok) > 0 && Number(data.investmentsNok) > 0)) return '';
+    return `Investments ${kr(data.investmentsNok)} · Cash ${kr(data.cashNok)}`;
+}
+
+function cashHeading(data) {
+    const rows = data.cash?.length ?? 0;
+    return `<h2 class="section__title" id="h-cash-heading">Cash</h2>
+        <span class="note">${rows} bank account${rows === 1 ? '' : 's'} · ${kr(data.cashNok)}</span>`;
+}
+
+/** Formatters per currency, built once each: bank accounts are few, currencies fewer. */
+const balanceFormats = new Map();
+
+/** An amount in its own currency, "250 000,00 kr" or "1 200,00 €"; the code alone if Intl does not know it. */
+function balance(amount, currency) {
+    const n = Number(amount);
+    if (amount === null || amount === undefined || !Number.isFinite(n)) return fmt.EMPTY;
+    const code = currency || 'NOK';
+    if (!balanceFormats.has(code)) {
+        try {
+            balanceFormats.set(code, new Intl.NumberFormat('nb-NO', { style: 'currency', currency: code }));
+        } catch {
+            balanceFormats.set(code, null);
+        }
+    }
+    const format = balanceFormats.get(code);
+    return format ? format.format(n) : `${n.toFixed(2)} ${escapeHtml(code)}`;
+}
+
+/** One bank account: its balance in its own currency, and in NOK. */
+function cashRow(holding) {
+    return `
+    <tr>
+        <td><strong>${escapeHtml(holding.name)}</strong></td>
+        <td class="note">${escapeHtml(holding.accountName)}</td>
+        <td class="num">${balance(holding.quantity, holding.currency)}</td>
+        <td class="num">${kr(holding.valueNok, true)}</td>
+        <td>${priceChip(holding)}</td>
+    </tr>`;
+}
+
+/**
  * The table's heading, which doubles as the only indication that a filter is
  * on. A filtered table that still says plainly "Holdings" invites reading a
  * subset as the whole portfolio.
@@ -348,6 +408,16 @@ function accountCard(account) {
     const gainNote = account.costBasisReported
         ? ' · reported by the broker'   // DNB states a portfolio total, no rows
         : partial ? ' · on tracked holdings' : '';
+    if (isBankAccount(account)) {
+        // Its balances have their own table below, so it filters nothing.
+        return `
+    <div class="summary__item">
+        <p class="summary__label">${escapeHtml(account.name)}</p>
+        <p class="summary__value">${kr(account.valueNok)}</p>
+        <p class="note">${account.holdingCount} account${account.holdingCount === 1 ? '' : 's'}${
+            account.asOf ? ` · synced ${escapeHtml(describeAsOf(account.asOf))}` : ''}</p>
+    </div>`;
+    }
     // A button, not a div with a click handler: it is focusable, reachable by
     // keyboard and announced as pressed without any of that being reinvented.
     return `
@@ -424,7 +494,7 @@ function headerCell(column) {
     return `<th${column.numeric ? ' class="num"' : ''}>
         <button type="button" data-sort="${column.key}"
                 aria-sort="${active ? (sortDesc ? 'descending' : 'ascending') : 'none'}"
-                style="font:inherit;color:${active ? 'var(--text)' : 'inherit'};cursor:pointer">
+                style="font:inherit;text-transform:inherit;letter-spacing:inherit;color:${active ? 'var(--text)' : 'inherit'};cursor:pointer">
             ${escapeHtml(column.label)}${arrow}
         </button></th>`;
 }
@@ -587,6 +657,9 @@ function mountChart(data, history) {
         onScrub: (info) => {
             const total = qs('#h-total');
             const change = qs('#h-change');
+            // Today's split under a past day's total would read as that day's.
+            const split = qs('#h-split');
+            if (split) split.style.visibility = info ? 'hidden' : '';
             if (info) {
                 if (total) total.textContent = kr(info.price);
                 if (change) setHtml(change, scrubbedChange(points, info.index));
@@ -785,6 +858,17 @@ function applyPriceUpdate(data) {
 
     const freshness = qs('#h-freshness');
     if (freshness) setHtml(freshness, freshnessBanner(data));
+
+    const split = qs('#h-split');
+    if (split) {
+        const line = splitLine(data);
+        split.hidden = !line;
+        setHtml(split, line);
+    }
+    const cashRows = qs('#h-cash-rows');
+    if (cashRows) setHtml(cashRows, (data.cash ?? []).map(cashRow).join(''));
+    const cashHead = qs('#h-cash-head');
+    if (cashHead) setHtml(cashHead, cashHeading(data));
 
     const accountsBox = qs('#h-accounts');
     if (accountsBox) {

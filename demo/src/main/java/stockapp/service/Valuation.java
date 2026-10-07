@@ -37,6 +37,11 @@ import static stockapp.model.Money.percent;
  * small lie that compounds. The split is surfaced instead, so a total reads
  * "412 500 kr - 99.9% priced live, 600 kr as of 14 Aug".
  *
+ * <p>Bank balances are cash, not investments. They count towards the total -
+ * it is a net worth - but every figure about how the investments are doing is
+ * taken over the investments alone: weights, the live share and the table.
+ * Otherwise a large balance shrinks every weight and reads as unpriced money.
+ *
  * <p>{@link ValuationService} supplies the stored holdings and cached prices;
  * this class only does the sums.
  */
@@ -143,6 +148,11 @@ public final class Valuation {
 
     /**
      * @param totalNok     real money only; simulated accounts are excluded
+     * @param investmentsNok the total without bank balances
+     * @param cashNok      bank balances; {@code totalNok = investmentsNok + cashNok}
+     * @param liveNok      priced live, out of {@code investmentsNok}
+     * @param asOfNok      investments carried at the broker's value
+     * @param holdings     the investments, largest first; bank balances are in {@code cash}
      * @param simulatedNok practice money, reported separately so it can be shown
      *                     without ever being added to a net worth
      * @param pricesRefreshing a refresh is running now, so these figures are
@@ -151,6 +161,8 @@ public final class Valuation {
      *                     first refresh has finished
      */
     public record Totals(BigDecimal totalNok,
+                         BigDecimal investmentsNok,
+                         BigDecimal cashNok,
                          BigDecimal liveNok,
                          BigDecimal asOfNok,
                          BigDecimal livePercent,
@@ -162,6 +174,7 @@ public final class Valuation {
                          int holdingCount,
                          List<AccountValuation> accounts,
                          List<ValuedHolding> holdings,
+                         List<ValuedHolding> cash,
                          Map<String, BigDecimal> fxRates,
                          BigDecimal dayChangeNok,
                          BigDecimal dayChangeBaseNok,
@@ -169,8 +182,9 @@ public final class Valuation {
                          Instant pricesAsOf) {
 
         Totals withPricesRefreshing(boolean refreshing) {
-            return new Totals(totalNok, liveNok, asOfNok, livePercent, gainNok, costBasisNok, simulatedNok,
-                    oldestAsOf, accountCount, holdingCount, accounts, holdings, fxRates,
+            return new Totals(totalNok, investmentsNok, cashNok, liveNok, asOfNok, livePercent, gainNok,
+                    costBasisNok, simulatedNok, oldestAsOf, accountCount, holdingCount, accounts, holdings, cash,
+                    fxRates,
                     dayChangeNok, dayChangeBaseNok, refreshing, pricesAsOf);
         }
     }
@@ -206,6 +220,7 @@ public final class Valuation {
         }
 
         BigDecimal total = BigDecimal.ZERO;
+        BigDecimal cash = BigDecimal.ZERO;
         BigDecimal live = BigDecimal.ZERO;
         BigDecimal costBasis = BigDecimal.ZERO;
         BigDecimal measured = BigDecimal.ZERO;
@@ -229,6 +244,9 @@ public final class Valuation {
                 continue;
             }
             total = total.add(tally.total());
+            if (isCash(account)) {
+                cash = cash.add(tally.total());
+            }
             costBasis = costBasis.add(tally.cost());
             measured = measured.add(tally.measured());
             live = live.add(tally.live());
@@ -239,31 +257,39 @@ public final class Valuation {
             }
         }
 
-        // Weights need the grand total, so they are filled in afterwards - and
-        // onto each account's own copy too, so a caller showing one account's
-        // holdings gets the same rows as the combined table rather than a
-        // parallel set that silently reads 0%.
+        // Weights need the investments total, so they are filled in afterwards -
+        // and onto each account's own copy too, so a caller showing one
+        // account's holdings gets the same rows as the combined table rather
+        // than a parallel set that silently reads 0%.
         BigDecimal grandTotal = money(total);
+        BigDecimal investments = money(total.subtract(cash));
         List<AccountValuation> accounts = new ArrayList<>(tallies.size());
         for (AccountTally tally : tallies) {
             AccountValuation account = tally.valuation();
             List<ValuedHolding> weighted = new ArrayList<>(account.holdings().size());
             for (ValuedHolding holding : account.holdings()) {
-                // Practice money is not part of the total, so it has no share
-                // of it. Null reads as "-"; zero would read as "nothing".
-                weighted.add(holding.withWeight(
-                        account.simulated() ? null : percent(holding.valueNok(), grandTotal)));
+                // Practice money is not part of the total, and a bank balance
+                // is not an investment, so neither has a share of the
+                // investments. Null reads as "-"; zero would read as "nothing".
+                weighted.add(holding.withWeight(account.simulated() || isCash(account)
+                        ? null : percent(holding.valueNok(), investments)));
             }
             accounts.add(account.withHoldings(weighted));
         }
 
-        // The combined table is real money only.
+        // The combined table is real investments only; balances go in their own list.
         List<ValuedHolding> holdings = accounts.stream()
-                .filter(account -> !account.simulated())
+                .filter(account -> !account.simulated() && !isCash(account))
+                .flatMap(account -> account.holdings().stream())
+                .sorted(Comparator.comparing(ValuedHolding::valueNok).reversed())
+                .collect(Collectors.toCollection(ArrayList::new));
+        List<ValuedHolding> balances = accounts.stream()
+                .filter(account -> !account.simulated() && isCash(account))
                 .flatMap(account -> account.holdings().stream())
                 .sorted(Comparator.comparing(ValuedHolding::valueNok).reversed())
                 .collect(Collectors.toCollection(ArrayList::new));
 
+        // A balance is never live, so live money is all investments already.
         BigDecimal liveNok = money(live);
         // Against the measured value, not the grand total: an account with no
         // cost basis at all would otherwise report its entire value as profit.
@@ -271,9 +297,11 @@ public final class Valuation {
 
         return new Totals(
                 grandTotal,
+                investments,
+                money(cash),
                 liveNok,
-                money(grandTotal.subtract(liveNok)),
-                percent(liveNok, grandTotal),
+                money(investments.subtract(liveNok)),
+                percent(liveNok, investments),
                 gain,
                 measured.signum() == 0 ? null : money(costBasis),
                 money(simulated),
@@ -282,6 +310,7 @@ public final class Valuation {
                 holdings.size(),
                 accounts,
                 holdings,
+                balances,
                 fxRates,
                 dayChangeBase.signum() == 0 ? null : money(dayChange),
                 dayChangeBase.signum() == 0 ? null : money(dayChangeBase),
@@ -372,6 +401,11 @@ public final class Valuation {
      */
     static boolean isPriceable(AccountRepo.StoredHolding holding) {
         return "YAHOO".equals(holding.priceSource()) && holding.symbol() != null && holding.verified();
+    }
+
+    /** Whether an account holds bank balances rather than investments. */
+    static boolean isCash(AccountValuation account) {
+        return BankSyncService.BROKER.equals(account.broker());
     }
 
     /** The last value on or before {@code day}, or null when there is none. */
