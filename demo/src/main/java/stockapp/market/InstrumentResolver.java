@@ -11,10 +11,9 @@ import java.util.Optional;
 /**
  * Turns a line from a broker export into a priceable instrument.
  *
- * <p>Almost nothing reaches this class with an ISIN. A hand-entered fund may
- * carry one, and that is exact; every import still arrives with only a name or
- * a ticker - Nordnet's export has no ISIN, and the DNB layout that does is not
- * plumbed through for it yet. Recovering identity from a name naively is how
+ * <p>An ISIN is exact, but only DNB's {@code DNBBeholdning.xlsx} and
+ * hand-entered funds carry one. Nordnet's export has only a name and DNB's
+ * other report only a ticker. Recovering identity from a name naively is how
  * you end up pricing a DNB Bank holding as Dun &amp; Bradstreet, or a Norwegian
  * fund as its Danish share class in DKK.
  *
@@ -76,42 +75,49 @@ public final class InstrumentResolver {
     }
 
     /**
-     * Resolves one export row.
+     * Resolves one export row, trying the strongest identifier first: the
+     * ISIN, then the ticker, then the name.
      *
-     * @param ticker        the broker's ticker if it supplies one (DNB does),
-     *                      otherwise null
+     * @param ticker        the broker's ticker if it supplies one (DNB's report
+     *                      does), otherwise null
+     * @param isin          the ISIN if the file or the user supplies one,
+     *                      otherwise null. Ignored if it is not shaped like one.
      * @param name          the broker's display name (Nordnet's only identifier)
      * @param currency      the holding's currency, which implies the exchange
      * @param expectedPrice the broker's own last price, used to verify
      */
-    public Resolution resolve(String ticker, String name, String currency, BigDecimal expectedPrice) {
+    public Resolution resolve(String ticker, String isin, String name, String currency,
+                              BigDecimal expectedPrice) {
         Double expected = expectedPrice == null ? null : expectedPrice.doubleValue();
         String suffix = YahooClient.suffixForCurrency(currency);
 
         Resolution doubtfulByCode = null;
 
+        String isinCode = isin == null ? "" : isin.trim().toUpperCase(Locale.ROOT);
+        if (ISIN.matcher(isinCode).matches()) {
+            // An ISIN is an identifier, not a ticker: appending ".OL" to it
+            // produces nothing. Yahoo's search resolves one exactly, which is
+            // the only way to name a fund share class without ambiguity. The
+            // price is still checked - an exact identifier can still point at a
+            // listing in the wrong currency.
+            for (String symbol : candidates(yahoo.search(isinCode), suffix)) {
+                Resolution attempt = verify(symbol, currency, expected);
+                if (attempt.status == Status.CONFIRMED) {
+                    return attempt;
+                }
+                if (doubtfulByCode == null && attempt.status == Status.NEEDS_REVIEW) {
+                    doubtfulByCode = attempt;
+                }
+            }
+        }
+
         if (ticker != null && !ticker.isBlank()) {
+            // A ticker is far stronger evidence than a name; DNB's report gives
+            // one, and for an Oslo listing "TEL" + ".OL" is unambiguous.
             String code = ticker.trim().toUpperCase(Locale.ROOT);
-            if (ISIN.matcher(code).matches()) {
-                // An ISIN is an identifier, not a ticker: appending ".OL" to it
-                // produces nothing. Yahoo's search resolves one exactly, which
-                // is the only way to name a fund share class without ambiguity.
-                for (String symbol : candidates(yahoo.search(code), suffix)) {
-                    Resolution attempt = verify(symbol, currency, expected);
-                    if (attempt.status == Status.CONFIRMED) {
-                        return attempt;
-                    }
-                    if (doubtfulByCode == null && attempt.status == Status.NEEDS_REVIEW) {
-                        doubtfulByCode = attempt;
-                    }
-                }
-            } else {
-                // A ticker is far stronger evidence than a name; DNB gives one,
-                // and for an Oslo listing "TEL" + ".OL" is unambiguous.
-                Resolution byTicker = verify(code + suffix, currency, expected);
-                if (byTicker.status != Status.UNRESOLVED) {
-                    return byTicker;
-                }
+            Resolution byTicker = verify(code + suffix, currency, expected);
+            if (byTicker.status != Status.UNRESOLVED) {
+                return byTicker;
             }
         }
 

@@ -63,7 +63,7 @@ and takes a `RoutesConfig` rather than a `Javalin`.
 ## Conventions
 
 - **One HTTP client.** `App` builds a single `OkHttpClient`; each upstream
-  client (`alpaca/`, `etoro/`, `yahoo/`, `norgesbank/`) derives its own
+  client (`alpaca/`, `etoro/`, `enablebanking/`, `yahoo/`, `norgesbank/`) derives its own
   timeouts from it with `newBuilder()`, so they share one connection pool and
   one dispatcher, and shutdown releases them once.
 - **One error contract.** Handlers throw `BadRequest`, `NotFound` or a domain
@@ -88,6 +88,7 @@ This is the decision most of the design hangs off.
 | Quotes | Memory, 15 s TTL | Same |
 | Sparklines | Memory, 30 s TTL | Derived from a single batched bars call |
 | Watchlists, trades, positions, alerts | PostgreSQL | Yours; must survive a restart |
+| Daily closes and rates for holdings | PostgreSQL | The value history is rebuilt from them without waiting on the network |
 
 Persisting intraday bars was considered and rejected. It would add millions of
 rows a month for data that nothing reads after the chart is painted, and the
@@ -194,8 +195,9 @@ market/       rows -> verified symbols
 yahoo/        prices: Oslo, Stockholm, US, funds
 norgesbank/   NOK exchange rates
 etoro/        live eToro positions
-service/      import, eToro sync, valuation
-repo/         accounts, snapshots, instruments, rates
+enablebanking/  bank balances, consented with BankID
+service/      import, eToro and bank sync, valuation
+repo/         accounts, snapshots, instruments, rates, bank links
 web/          /api/holdings/*
 ```
 
@@ -209,9 +211,11 @@ own currencies. Alpaca still powers the watchlist and paper portfolio.
 
 ### Identity, usually without an ISIN
 
-Nordnet's export has only a name and DNB's main report only a ticker. The one
-DNB file that carries an ISIN is not read for it yet. So identity is usually
-inferred — and inference needs a check. Three things make it safe:
+An ISIN names an instrument exactly, and the resolver tries it first when a row
+has one: `DNBBeholdning.xlsx` carries one on every row, and a hand-entered fund
+may. But Nordnet's export has only a name and DNB's main report only a ticker,
+so for most rows identity is inferred — and inference needs a check. Three
+things make it safe:
 
 1. **Currency pins the exchange.** A NOK holding is on Oslo Børs, SEK is
    Stockholm. That eliminates most wrong candidates before a price is fetched.
@@ -231,7 +235,10 @@ of each other. Units and value settle it: their quotient is the NAV, the classes
 are nowhere near each other, and the same price check picks the right one. An
 ISIN, when the user has one, is exact and skips the search.
 
-Only a settled mapping is remembered as an alias. Caching an unverified guess
+Only a settled mapping is remembered as an alias. It is stored under the
+row's strongest label — ISIN, else ticker, else name — and looked up under all
+three, so a match remembered by name before a file carried an ISIN is still
+found once it does. Caching an unverified guess
 would skip the price check on every future import — which is how a wrong match
 becomes permanent and invisible.
 
@@ -268,6 +275,31 @@ Three things about eToro's API that cost time and are not in its documentation:
 - **`x-request-id` must be a real GUID.** A malformed one is rejected with
   `RequestIdNotValidGuid` rather than ignored.
 
+### Bank balances: a consent, then a daily read
+
+Bank accounts come through Enable Banking, a licensed aggregator that is free
+for a private individual reading their own accounts. Unlike eToro there is no
+static key that grants access: the application signs each request with its
+private key (an RS256 JWT, `kid` = application ID), and each bank must be
+consented with BankID first.
+
+Linking is a round trip through the browser. `BankSyncService.connect` asks
+for the bank's login page and remembers a random `state` for 30 minutes; the
+bank sends the browser back with a `code` and that `state`; `complete` turns
+the code into a session and stores it in `bank_link`. The callback can land on
+Ticker itself or, when the control panel will not register a localhost
+address, on a page outside it whose address the user pastes in. Both go
+through the same check of `state`.
+
+From then on a linked bank is just another account, "DNB (bank)", with one
+holding per bank account valued at its balance and `price_source` NONE, so the
+total, the account cards and the value history need no special case. Booked
+balances are preferred over available ones, which can include a credit line.
+The daily holdings job syncs every link whose consent is still valid; a link
+that is expired or refused is reported in the results and the other banks
+still sync. Consent lasts at most 180 days (PSD2), after which the user
+connects the bank again; the stored balances stay as they were.
+
 ### Simulated accounts are shown, never counted
 
 An eToro demo account reports a portfolio exactly like a real one, practice cash
@@ -284,10 +316,30 @@ while a snapshot taken under it stays in the database forever.
 ### Snapshots, not mutations
 
 An import writes a whole dated snapshot. Re-importing replaces that date
-cleanly, an undo is a delete, and a value history accumulates without needing
-transaction data — which matters, because neither broker exports transactions
-this app could rebuild history from. DNB's "Mine ordre" is twelve months of
-orders and cannot describe current positions, so it is detected and rejected.
+cleanly, and an undo is a delete. Neither broker exports transactions this app
+could rebuild history from: DNB's "Mine ordre" is twelve months of orders and
+cannot describe current positions, so it is detected and rejected.
+
+### A value history from closes, not from imports
+
+The history chart is rebuilt, not stored, the same way the paper portfolio's
+curve is rebuilt from its trade log. For each trading day since the first
+import, every real account's snapshot in force that day is valued at that day's
+close and Norges Bank rate, through the same `Valuation.value` the live total
+uses — so today's point equals the headline figure. A missing close or rate
+carries the last one forward; anything without a price keeps its reported
+value.
+
+The closes (`instrument_close`) and rates (`fx_rate`) are stored, so the chart
+reads only the database. `HoldingsHistorySync` fetches what is missing in the
+background: at startup, after every import or eToro sync, and once a day. Each
+run also refetches the last few stored days, because a close taken while a
+session was open was a live price.
+
+What it cannot see is a trade made between imports: until the next import or
+sync, the curve values the holdings the last import described. For eToro and
+linked banks the scheduler syncs once a day while the app runs, which keeps
+that window to a day; file imports stay as fresh as the last file.
 
 ### Two valuation paths, reported separately
 

@@ -90,6 +90,7 @@ public final class NordnetParser implements BrokerParser {
             holdings.add(new ParsedHolding(
                     name.trim(),
                     null,
+                    null,
                     upper(cell(cells, columns, COL_CURRENCY)),
                     quantity,
                     number(cell(cells, columns, COL_AVG_COST)),

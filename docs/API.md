@@ -221,7 +221,11 @@ appears in `accounts` so it can be displayed and labelled.
 ```json
 { "points": [{ "date": "2026-08-14", "value": 411950.20 }] }
 ```
-One point per snapshot date, summed across accounts.
+The combined value of every real account on each trading day, from the first
+import to today. Each day values the snapshot in force that day at that day's
+close and exchange rate; anything without a price keeps its reported value.
+Reads only stored closes and rates, so it never waits on the network; a
+background job keeps them current. Simulated accounts are excluded.
 
 ### `POST /api/holdings/import/preview`
 `multipart/form-data` with a `file` part. Max 8 MB. Parses and resolves without
@@ -231,7 +235,7 @@ writing anything.
 { "id": "98cf1e9d-…", "broker": "NORDNET", "accountName": "Nordnet",
   "asOf": "2026-08-14", "totalNok": 230000.00,
   "confirmed": 6, "needsReview": 1, "unresolved": 1,
-  "rows": [{ "index": 5, "name": "AEye A", "ticker": null, "currency": "USD",
+  "rows": [{ "index": 5, "name": "AEye A", "ticker": null, "isin": null, "currency": "USD",
              "quantity": 200, "avgCost": 3.15, "lastPrice": 2.10,
              "valueNok": 3969.00, "status": "NEEDS_REVIEW", "symbol": "AEYE",
              "resolvedName": "AudioEye, Inc.", "livePrice": 12.60,
@@ -311,6 +315,57 @@ Returns an eToro response untouched. Everything in the client was written
 against documentation rather than a live account, so this is what shows the real
 shape when a field is not where it was expected. Read-only, and restricted to
 paths on eToro's own API.
+
+### Bank balances (Enable Banking)
+
+Bank accounts linked with BankID through Enable Banking. Each linked bank is
+stored as an account named "<bank> (bank)", one holding per bank account at its
+balance. Every endpoint except the status returns 400 when
+`ENABLE_BANKING_APP_ID` and `ENABLE_BANKING_KEY_FILE` are not set, and 502 with
+an explanation when Enable Banking or the bank refuses.
+
+### `GET /api/holdings/banks`
+```json
+{ "configured": true,
+  "redirectUrl": "http://localhost:9090/api/holdings/banks/callback",
+  "links": [{ "bank": "DNB", "validUntil": "2027-04-05T11:00:00Z",
+              "expired": false, "accounts": 2 }] }
+```
+`configured` is false when the keys are absent, which is how the UI decides
+whether to offer bank linking at all.
+
+### `GET /api/holdings/banks/available`
+The banks that can be linked in `ENABLE_BANKING_COUNTRY`:
+```json
+[{ "name": "DNB", "country": "NO", "maximumConsentSeconds": 15552000 }]
+```
+
+### `POST /api/holdings/banks/connect`
+```json
+{ "bank": "DNB" }
+```
+Starts the BankID login and returns the bank's page to open:
+`{"url": "https://..."}`. Consent is asked for as long as the bank allows, at
+most 180 days. The login must be finished within 30 minutes.
+
+### `GET /api/holdings/banks/callback?code=&state=`
+Where the bank sends the browser after BankID, when the registered redirect
+URL is this app. Links the bank, syncs it, and answers with a short HTML page
+saying what was linked or why not. A `state` this app did not start is refused.
+
+### `POST /api/holdings/banks/complete`
+```json
+{ "url": "https://enablebanking.com/?state=...&code=..." }
+```
+The same as the callback, for when the registered redirect is not this app: the
+address the browser landed on is pasted in. Returns
+`{"result": {...}, "holdings": {...}}`, where `result` is
+`{ "bank", "accountName", "accounts", "totalNok", "notes" }`.
+
+### `POST /api/holdings/banks/sync`
+Reads every linked bank whose consent is still valid and writes today's
+snapshot of its balances. An expired link, or one the bank refuses, comes back
+with `accounts: 0` and the reason in its `notes`; the other banks still sync. Returns `{"results": [...], "holdings": {...}}`.
 
 ### Also available
 `GET /api/holdings/accounts`, `GET /api/holdings/instruments` — the raw rows,

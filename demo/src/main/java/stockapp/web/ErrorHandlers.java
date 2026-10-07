@@ -6,6 +6,7 @@ import io.javalin.http.HttpStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import stockapp.alpaca.AlpacaException;
+import stockapp.enablebanking.EnableBankingException;
 import stockapp.etoro.EtoroException;
 import stockapp.importer.ImportException;
 import stockapp.repo.PortfolioRepo;
@@ -41,10 +42,15 @@ public final class ErrorHandlers {
         routes.exception(ImportException.class, (e, ctx) ->
                 fail(ctx, HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage()));
 
-        // Upstream failures. eToro's messages are written for a person (bad
-        // keys, rate limit); Alpaca's are not, so a generic one goes out.
+        // Upstream failures. eToro's and Enable Banking's messages are written
+        // for a person (bad keys, rate limit, an expired bank login); Alpaca's
+        // are not, so a generic one goes out.
         routes.exception(EtoroException.class, (e, ctx) -> {
             log.warn("eToro failure on {} {}: {}", ctx.method(), ctx.path(), e.getMessage());
+            fail(ctx, HttpStatus.BAD_GATEWAY, e.getMessage());
+        });
+        routes.exception(EnableBankingException.class, (e, ctx) -> {
+            log.warn("Enable Banking failure on {} {}: {}", ctx.method(), ctx.path(), e.getMessage());
             fail(ctx, HttpStatus.BAD_GATEWAY, e.getMessage());
         });
         routes.exception(AlpacaException.class, (e, ctx) -> {

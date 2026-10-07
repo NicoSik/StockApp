@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -180,5 +181,28 @@ class DnbBeholdningParserTest {
         ImportException error = assertThrows(ImportException.class,
                 () -> parser.parse("b.xlsx", Workbooks.workbook(empty)));
         assertTrue(error.getMessage().contains("no holdings"), error.getMessage());
+    }
+
+    @Test
+    void passesTheIsinOnSoRowsResolveExactly() {
+        ParsedExport export = parser.parse("DNBBeholdning.xlsx", beholdning());
+        assertEquals(List.of("NO0010000001", "NO0010000002", "NO0010000003"),
+                export.holdings().stream().map(ParsedHolding::isin).toList());
+        assertTrue(export.holdings().stream().allMatch(h -> h.ticker() == null),
+                "this layout has no ticker; the ISIN must not be passed off as one");
+    }
+
+    @Test
+    void aSheetWithoutAnIsinColumnIsStillRead() {
+        Map<String, String[][]> sheets = new LinkedHashMap<>();
+        sheets.put("share", new String[][] {HEADER,
+                row("NO0010000001", "MOWI ASA", "100", "46174", "150.0", "15000.0")});
+        sheets.put("other", new String[][] {
+                {"Security name", "Holdings", "Market value"},
+                {"SOMETHING ELSE", "5", "500.0"}});
+        ParsedExport export = parser.parse("DNBBeholdning.xlsx", Workbooks.workbook(sheets));
+
+        assertEquals(2, export.holdings().size());
+        assertNull(export.holdings().get(1).isin());
     }
 }

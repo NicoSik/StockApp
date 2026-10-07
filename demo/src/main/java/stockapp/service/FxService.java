@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 
 /**
  * Currency conversion to NOK, using Norges Bank's published reference rates.
@@ -72,6 +73,21 @@ public final class FxService {
      * traffic. If the fetch fails, the most recent stored rates are used - a
      * yesterday rate is a rounding error, an unpriced portfolio is not.
      */
+    /** Every stored rate from {@code from} onwards, per currency. Reads only the database. */
+    public Map<String, NavigableMap<LocalDate, BigDecimal>> rateHistory(LocalDate from) {
+        return repo.history(from);
+    }
+
+    /**
+     * Fetches the rates published between two dates from Norges Bank and
+     * stores them.
+     *
+     * @throws IllegalStateException when Norges Bank cannot be reached
+     */
+    public void fetchRateHistory(List<String> currencies, LocalDate from, LocalDate to) {
+        repo.saveHistory(norgesBank.history(currencies, from, to));
+    }
+
     public Map<String, BigDecimal> latestRates() {
         Map<String, BigDecimal> fresh = cache.get("latest", Duration.ofHours(1), key -> {
             try {

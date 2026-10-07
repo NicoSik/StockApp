@@ -30,11 +30,11 @@ import java.util.Map;
  *       understate a net worth silently, and unlike the {@code Aksjer} layout
  *       there is no stated total here to catch it - so the guard has to be that
  *       nothing is skipped in the first place.</li>
- *   <li><b>There is no ticker.</b> Identity is the ISIN, which is exact, but
- *       nothing downstream takes one yet, so rows are resolved from
- *       {@code Security name} the way Nordnet's are. The names are clean
- *       ("MOWI ASA", "ORKLA ASA") and every row carries a price, so the
- *       resolver still gets to verify what it finds.</li>
+ *   <li><b>There is no ticker, but there is an ISIN.</b> It is passed on
+ *       with the name, and the resolver searches by ISIN first, which names
+ *       an instrument exactly. The name ("MOWI ASA", "ORKLA ASA") is the
+ *       fallback, and every row carries a price, so whatever is found is still
+ *       verified.</li>
  *   <li><b>There is no Total sheet and no cost price anywhere.</b> Both the
  *       reported total and the cost basis are left null rather than filled with
  *       the sum of the rows, which would only be the parser agreeing with
@@ -118,6 +118,7 @@ public final class DnbBeholdningParser implements BrokerParser {
 
             Map<String, Integer> columns = XlsxReader.headerIndex(rows.get(0));
             int nameIdx = columns.get(COL_NAME);
+            Integer isinIdx = columns.get(COL_ISIN);
             int quantityIdx = columns.get(COL_QUANTITY);
             int valueIdx = columns.get(COL_VALUE);
             Integer priceIdx = columns.get(COL_PRICE);
@@ -135,7 +136,9 @@ public final class DnbBeholdningParser implements BrokerParser {
                         ? null
                         : XlsxReader.number(XlsxReader.at(row, priceIdx));
 
-                holdings.add(new ParsedHolding(name, null, CURRENCY, quantity, null,
+                String isin = isinIdx == null ? null : XlsxReader.at(row, isinIdx);
+
+                holdings.add(new ParsedHolding(name, null, isin, CURRENCY, quantity, null,
                         priceInNok(quantity, price, value), value, value));
                 asOf = later(asOf, dateIdx == null ? null : date(XlsxReader.at(row, dateIdx)));
             }

@@ -3,7 +3,7 @@
 A stock watcher with a Robinhood-style interface: live watchlists, scrubable
 price charts, and a paper portfolio that never touches a broker.
 
-Java 17 · Javalin 7 · PostgreSQL · Alpaca, Yahoo, Norges Bank and eToro · a
+Java 17 · Javalin 7 · PostgreSQL · Alpaca, Yahoo, Norges Bank, eToro and Enable Banking · a
 vanilla-JS front end with no build step.
 
 ![The Ticker watchlist and stock detail view](docs/screenshots/ticker.png)
@@ -44,18 +44,20 @@ Drop in an export and it becomes one combined total:
 |---|---|---|
 | **eToro** | **live API** — no export needed | eToro instrument id |
 | **Nordnet** | *Aksjelister* (`.csv`) | name — no ISIN, no ticker |
-| **DNB** | holdings report (`.xlsx`) | ticker, or name |
+| **DNB** | holdings report (`.xlsx`) | ticker, or ISIN |
+| **Bank accounts** | **Enable Banking** — BankID at your bank | the bank's account id |
 
 DNB emits two different holdings workbooks and both are read: the Norwegian
 one, with an `Aksjer` sheet keyed by ticker and a `Total` sheet to reconcile
 against, and `DNBBeholdning.xlsx`, which has English headers and one sheet per
 asset class. The second carries an ISIN — the one exact identifier any of these
-files offers — but nothing downstream reads it yet, so its rows are matched by
-name like Nordnet's.
+files offers — so its rows are looked up by ISIN first, and by name only if
+that finds nothing.
 
 eToro is the only one of the three offering a personal API. Add
 `ETORO_API_KEY` and `ETORO_USER_KEY` to `.env` (Settings → Trading → API Key
-Management, Read permission) and a **Sync eToro** button appears. Its holdings
+Management, Read permission) and a **Sync eToro** button appears. While the app
+runs, it also syncs eToro once a day after the US close. Its holdings
 are valued by eToro rather than re-priced here — an eToro account can mix plain
 shares with leveraged CFDs, shorts and copy portfolios, and only the first is
 something a share price could value. Leverage and short positions are labelled
@@ -78,8 +80,15 @@ in the table rather than shown as though they were ordinary stock.
   which is what caught a Nordnet line called "AEye A" resolving to AudioEye
   (`AEYE`) when the holding was AEye Inc (`LIDR`).
 - **Imports are reversible.** Each one writes a dated snapshot rather than
-  editing holdings, so re-importing is safe and a value history builds up for
-  free.
+  editing holdings, so re-importing is safe.
+- **A value history for every day.** The chart values your latest import at
+  each day's closing price and exchange rate, from your first import to today.
+  Trades made between imports appear at the next import or eToro sync, and
+  anything without a market price stays at the value your broker reported.
+  With eToro keys set, eToro is synced once a day while the app runs.
+- **Bank balances count too.** Link a bank and its account balances join the
+  total, synced once a day alongside eToro. See [Bank balances](#bank-balances)
+  below.
 
 Broker exports live in `imports/`, which is gitignored.
 
@@ -134,6 +143,54 @@ cd demo && .\mvnw.cmd compile exec:java     # Windows
 The first `mvnw` run downloads Apache Maven (~9 MB, SHA-512 verified) into
 `~/.m2/wrapper`. After that it is offline and instant.
 
+## Bank balances
+
+Optional. Bank account balances arrive through
+[Enable Banking](https://enablebanking.com), a licensed Open Banking
+aggregator. You approve read-only access with BankID at your own bank; Ticker
+never sees your BankID or your bank login. Enable Banking is free for private
+individuals reading their own accounts ("restricted production").
+
+**1. Register an application.** Sign in to the Enable Banking control panel
+and add an API application in **Production**:
+
+- Let the browser generate the key. It downloads a `.pem` file named after
+  the application ID. Move it **outside this repository**, for example
+  `~/.config/ticker/enablebanking.pem`. (`*.pem` is gitignored as a backstop.)
+- Under redirect URLs, register
+  `http://localhost:9090/api/holdings/banks/callback`. If the control panel
+  refuses a localhost address, register `https://enablebanking.com/` instead
+  and set `ENABLE_BANKING_REDIRECT_URL` to the same. Ticker then asks you to
+  paste the address the bank sends you to after BankID.
+
+**2. Activate it.** On the new, inactive application, choose **Activate by
+linking accounts** and approve each bank with BankID. That is what makes the
+application usable for free: the API then returns only the accounts you linked
+there.
+
+**3. Configure Ticker.** In `.env`:
+
+```bash
+ENABLE_BANKING_APP_ID=the-application-id
+ENABLE_BANKING_KEY_FILE=~/.config/ticker/enablebanking.pem
+```
+
+Restart, open Holdings and press **Connect a bank**. Pick the bank, finish
+BankID in the tab that opens, and the bank appears as an account named
+"DNB (bank)", one holding per bank account at its balance.
+
+Things to know:
+
+- **Consent lasts up to 180 days.** That is the PSD2 limit. Holdings shows when
+  each link runs out; after that, connect the bank again. You can revoke it
+  sooner in your bank.
+- **Banks limit unattended reads to about four a day.** The daily sync uses
+  one; press **Sync banks** sparingly.
+- **Booked balances are preferred over available ones.** "Available" can
+  include a credit line, which is not your money.
+- A key file that starts `BEGIN RSA PRIVATE KEY` is refused with the
+  `openssl` command that converts it.
+
 ## How it fits together
 
 ```
@@ -151,7 +208,8 @@ browser ── /api/* JSON ──▶ Javalin ──▶ services ──┬──�
   curve and act as the offline fallback when Alpaca is unreachable.
 - **Holdings** are stored as a dated snapshot per account. Their live prices
   are cached for a minute and refreshed in the background, so the page never
-  waits on Yahoo.
+  waits on Yahoo. Daily closes and exchange rates are stored too, and the value
+  history is rebuilt from them.
 - **Your data** — watchlists, trades, positions, alerts, holdings — lives only
   in your database.
 
@@ -174,11 +232,18 @@ the `MIGRATIONS` array in `Db.java`. Never edit a migration that has shipped.
 cd demo && ./mvnw test        # .\mvnw.cmd test on Windows
 ```
 
-115 tests covering the pure logic: holdings valuation, broker-file parsing,
+The tests cover the pure logic: holdings valuation, broker-file parsing,
 instrument matching, Norges Bank rate parsing, range parsing and lookback
 windows, quote arithmetic, sparkline downsampling, daily-job scheduling,
 request validation and timestamp parsing. Anything needing a database or the
 network is exercised by running the app, not by a mock.
+
+Two tests guard the docs and the schema against drift: `ApiDocsTest` fails
+when `docs/API.md` and the registered routes disagree, and `MigrationsTest`
+fails when a migration file is missing from `Db.MIGRATIONS`.
+
+GitHub Actions runs the suite on every push to `main` and every pull request,
+on JDK 17 and 21 (`.github/workflows/ci.yml`).
 
 `RealExportTest` also runs the parsers against whatever real exports are in
 `imports/`, and skips itself when there are none.

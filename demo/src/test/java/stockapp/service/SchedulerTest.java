@@ -3,7 +3,10 @@ package stockapp.service;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SchedulerTest {
@@ -34,5 +37,32 @@ class SchedulerTest {
         LocalTime target = LocalTime.now(java.time.ZoneId.of("America/New_York")).minusMinutes(1);
         long seconds = Scheduler.secondsUntilNext(target);
         assertTrue(seconds > ONE_DAY - 3600, "a just-missed time should wait nearly a full day, got " + seconds);
+    }
+
+    // ------------------------------------------------------ holdings day
+
+    @Test
+    void theSyncsRunInOrderBeforeTheHistoryRefresh() {
+        List<String> ran = new ArrayList<>();
+        Scheduler.runHoldingsDay(List.of(() -> ran.add("etoro"), () -> ran.add("banks")), () -> ran.add("history"));
+        assertEquals(List.of("etoro", "banks", "history"), ran);
+    }
+
+    @Test
+    void withNothingToSyncOnlyTheHistoryIsRefreshed() {
+        List<String> ran = new ArrayList<>();
+        Scheduler.runHoldingsDay(List.of(), () -> ran.add("history"));
+        assertEquals(List.of("history"), ran);
+    }
+
+    @Test
+    void aFailedSyncDoesNotStopTheOthersOrTheHistory() {
+        // Bad keys, a rate limit or a stall at one provider must not cost the
+        // other accounts their day of history.
+        List<String> ran = new ArrayList<>();
+        Scheduler.runHoldingsDay(List.of(() -> {
+            throw new IllegalStateException("eToro is not responding");
+        }, () -> ran.add("banks")), () -> ran.add("history"));
+        assertEquals(List.of("banks", "history"), ran);
     }
 }

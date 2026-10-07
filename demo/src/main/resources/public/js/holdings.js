@@ -42,6 +42,8 @@ let fixingRow = null;
 let searchTimer = null;
 
 let chart = null;
+/** The figures the header shows when nothing is scrubbed; kept current by price refreshes. */
+let shown = null;
 
 /** Called by the router before leaving, so the canvas listeners do not leak. */
 export function teardownHoldingsChart() {
@@ -60,11 +62,13 @@ export async function renderHoldingsView(main) {
     let data;
     let history = { points: [] };
     let etoro = { configured: false };
+    let banks = { configured: false, links: [] };
     try {
-        [data, history, etoro] = await Promise.all([
+        [data, history, etoro, banks] = await Promise.all([
             api.holdings(),
             api.holdingsHistory().catch(() => ({ points: [] })),
             api.etoroStatus().catch(() => ({ configured: false })),
+            api.bankStatus().catch(() => ({ configured: false, links: [] })),
         ]);
     } catch (error) {
         setHtml(main, `<div class="empty"><p class="empty__title">Could not load holdings</p>
@@ -81,7 +85,7 @@ export async function renderHoldingsView(main) {
         activeAccount = null;
     }
 
-    setHtml(main, markup(data, history, etoro));
+    setHtml(main, markup(data, history, etoro, banks));
     mountChart(data, history);
     bind(main);
     bindSorting();
@@ -91,7 +95,7 @@ export async function renderHoldingsView(main) {
 
 // ==================================================================== markup
 
-function markup(data, history, etoro) {
+function markup(data, history, etoro, banks) {
     const empty = !data.holdings || data.holdings.length === 0;
     const gainDir = fmt.direction(data.gainNok);
 
@@ -111,8 +115,16 @@ function markup(data, history, etoro) {
                 ? `<button type="button" class="button button--small" id="h-etoro">
                        Sync eToro${etoro.demo ? ' (demo)' : ''}</button>`
                 : ''}
+            ${banks?.configured
+                ? `<button type="button" class="button button--small" id="h-bank-connect">Connect a bank</button>
+                   ${banks.links?.length
+                       ? '<button type="button" class="button button--small" id="h-bank-sync">Sync banks</button>' : ''}`
+                : ''}
             <button type="button" class="button button--small button--ghost" id="h-refresh">Refresh prices</button>
         </div>
+        ${banks?.links?.length ? `
+            <p class="note" style="margin-top:var(--space-2)">Banks: ${banks.links.map(bankLinkNote).join(' · ')}</p>`
+            : ''}
         ${etoro && !etoro.configured ? `
             <p class="note" style="margin-top:var(--space-2)">
                 eToro can sync automatically — add <code>ETORO_API_KEY</code> and
@@ -126,13 +138,14 @@ function markup(data, history, etoro) {
                 <div class="chart__tooltip" id="h-tooltip" aria-hidden="true"></div>
                 <div class="chart__price-tag" id="h-price-tag" aria-hidden="true"></div>
                 <div class="chart__empty" id="h-chart-empty"${history.points?.length > 1 ? ' hidden' : ''}>
-                    ${history.points?.length > 1 ? '' : 'Your value chart builds up as you import over time — one point per import.'}
+                    ${history.points?.length > 1 ? '' : 'Your value chart starts at your first import and fills in as prices are fetched.'}
                 </div>
             </div>
             ${history.points?.length > 1 ? `
                 <p class="note" style="margin-top:var(--space-2)">
-                    One point per import, at the value your broker reported that day — so the
-                    latest point will not match the live figure above exactly.
+                    Each day values your latest import at that day's closing price. Trades made
+                    between imports show up at the next import or eToro sync, and anything
+                    without a market price stays at the value your broker reported.
                 </p>` : ''}
 
 
@@ -501,16 +514,14 @@ function emptyState() {
 // ===================================================================== chart
 
 /**
- * Plots combined value per snapshot date.
- *
- * <p>Two points are enough for a line, and two points is what you have after a
- * second import - so the chart earns its place immediately rather than after
- * weeks of history.
+ * Plots the combined value on each day since the first import, as the server
+ * rebuilds it from daily closes.
  */
 function mountChart(data, history) {
+    shown = data;
     const canvas = qs('#h-canvas');
     const points = (history.points ?? [])
-        // Anchored to midday UTC, not midnight. A snapshot carries a calendar
+        // Anchored to midday UTC, not midnight. Each point carries a calendar
         // date, but the chart's labels are formatted in market time - and
         // "2026-08-11" parsed as UTC midnight is the evening of the 10th in New
         // York, so every point would display a day early. Midday leaves no
@@ -526,18 +537,36 @@ function mountChart(data, history) {
         formatValue: (value) => kr(value),
         onScrub: (info) => {
             const total = qs('#h-total');
-            const label = qs('#h-total-label');
+            const change = qs('#h-change');
             if (info) {
                 if (total) total.textContent = kr(info.price);
-                if (label) label.textContent = 'on this date';
+                if (change) setHtml(change, scrubbedChange(points, info.index));
             } else {
-                if (total) total.textContent = kr(data.totalNok);
-                if (label) label.textContent = data.gainNok !== null && data.gainNok !== undefined
-                    ? 'where cost basis is known' : 'Combined value in NOK';
+                if (total) total.textContent = kr(shown.totalNok);
+                if (change) setHtml(change, heroChange(shown));
             }
         },
     });
     chart.setData({ points, baseline: points[0].close, range: '1Y' });
+}
+
+/**
+ * The header's change line for a scrubbed day: the move from the trading day
+ * before it, labelled "that day" the way the live line says "today".
+ *
+ * <p>The cost-basis gain is left out. It is only known for today, and keeping
+ * it beside a past day's value would read as that day's gain.
+ */
+function scrubbedChange(points, index) {
+    const previous = points[index - 1];
+    if (!previous) {
+        return '<span class="hero__change-label">the first day on the chart</span>';
+    }
+    const change = points[index].close - previous.close;
+    const pct = previous.close ? (100 * change) / previous.close : null;
+    return `<span class="${fmt.direction(change)}">${fmt.arrow(change)} ${kr(change)}${
+        pct === null ? '' : ` (${fmt.signedPercent(pct)})`}</span>
+        <span class="hero__change-label">that day</span>`;
 }
 
 // =============================================================== interaction
@@ -548,6 +577,27 @@ function bind(main) {
     qs('#h-refresh', main)?.addEventListener('click', async () => {
         toast('Refreshing prices…', 'info');
         await renderHoldingsView(main);
+    });
+
+    qs('#h-bank-connect', main)?.addEventListener('click', () => openBanks(main));
+    qs('#h-bank-sync', main)?.addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        const original = button.textContent;
+        button.textContent = 'Syncing…';
+        try {
+            const { results } = await api.syncBanks();
+            for (const result of results) {
+                // An expired or refused bank comes back with no accounts and a note saying why.
+                if (result.accounts > 0) toast(`${result.bank}: ${result.accounts} account(s) synced.`, 'success');
+                (result.notes ?? []).forEach((note) => toast(note, result.accounts > 0 ? 'info' : 'error'));
+            }
+            await renderHoldingsView(main);
+        } catch (error) {
+            toast(error.message, 'error');
+            button.disabled = false;
+            button.textContent = original;
+        }
     });
 
     qs('#h-etoro', main)?.addEventListener('click', async (event) => {
@@ -633,8 +683,8 @@ let refreshAttempts = 0;
  * Re-fetches while the server says prices are still being refreshed.
  *
  * <p>Only the figures are replaced - the chart is left untouched, because it
- * plots snapshot history and no live price can move it. Rebuilding it would
- * throw away the crosshair and any scrub in progress for no reason.
+ * plots daily closes and a live price refresh does not change them. Rebuilding
+ * it would throw away the crosshair and any scrub in progress for no reason.
  */
 function schedulePriceRefresh(data) {
     clearTimeout(refreshTimer);
@@ -673,11 +723,16 @@ function applyPriceUpdate(data) {
         activeAccount = null;
     }
 
-    const total = qs('#h-total');
-    if (total) total.textContent = kr(data.totalNok);
+    // Do not fight the user: while a day is scrubbed the header shows that
+    // day, and releasing the chart restores these figures from `shown`.
+    shown = data;
+    if (chart?.activeIndex === null || chart?.activeIndex === undefined) {
+        const total = qs('#h-total');
+        if (total) total.textContent = kr(data.totalNok);
 
-    const change = qs('#h-change');
-    if (change) setHtml(change, heroChange(data));
+        const change = qs('#h-change');
+        if (change) setHtml(change, heroChange(data));
+    }
 
     const freshness = qs('#h-freshness');
     if (freshness) setHtml(freshness, freshnessBanner(data));
@@ -717,6 +772,100 @@ const FUND_ACCOUNTS = [
 
 /** Which fund account the dialog is editing. */
 let fundAccount = FUND_ACCOUNTS[0].name;
+
+// ===================================================================== banks
+
+/** "DNB until 2027-04-05", or that it has expired. */
+function bankLinkNote(link) {
+    const until = (link.validUntil ?? '').slice(0, 10);
+    return link.expired
+        ? `${escapeHtml(link.bank)} <strong>expired ${escapeHtml(until)}</strong> — connect it again`
+        : `${escapeHtml(link.bank)} until ${escapeHtml(until)}`;
+}
+
+/**
+ * Links a bank in two steps. Choosing a bank opens its BankID login in a new
+ * tab. If the bank sends the browser back to Ticker, the link completes there
+ * on its own; if it lands on a page outside Ticker, its address is pasted in
+ * here instead.
+ */
+async function openBanks(main) {
+    const backdrop = qs('#h-import-backdrop');
+    if (!backdrop) return;
+    backdrop.hidden = false;
+    document.addEventListener('keydown', escapeToClose);
+    setHtml(qs('#h-import-body'), '<div style="padding:var(--space-5)"><p class="note">Loading banks…</p></div>');
+
+    let banks;
+    try {
+        banks = await api.availableBanks();
+    } catch (error) {
+        setHtml(qs('#h-import-body'), `<div style="padding:var(--space-5)">
+            <p class="note">${escapeHtml(error.message)}</p>
+            <button type="button" class="button button--small button--ghost" id="h-bank-cancel">Close</button></div>`);
+        qs('#h-bank-cancel')?.addEventListener('click', closeImport);
+        return;
+    }
+
+    setHtml(qs('#h-import-body'), `
+    <div style="padding:var(--space-5); max-height:80vh; overflow:auto">
+        <h2 class="card__title"><span>Connect a bank</span></h2>
+        <p class="note">Your bank's balances are added to the total and synced every day. You approve
+           read-only access with BankID at the bank; it lasts up to 180 days, and you can revoke it
+           at the bank at any time.</p>
+        <p style="margin-top:var(--space-4)">
+            <label class="note" for="h-bank-choice">Bank</label><br>
+            <select id="h-bank-choice" style="margin-top:var(--space-2)">
+                ${banks.map((bank) => `<option value="${escapeHtml(bank.name)}">${escapeHtml(bank.name)}</option>`).join('')}
+            </select>
+        </p>
+        <div class="hero__actions" style="margin-top:var(--space-4)">
+            <button type="button" class="button button--small" id="h-bank-start">Continue with BankID</button>
+            <button type="button" class="button button--small button--ghost" id="h-bank-cancel">Cancel</button>
+        </div>
+        <div id="h-bank-finish" hidden style="margin-top:var(--space-5)">
+            <p class="note">Finish BankID in the new tab. If the bank brings you back to Ticker, the bank is
+               linked there. If you land on a page outside Ticker, copy its address and paste it here:</p>
+            <input type="text" id="h-bank-url" placeholder="https://…" autocomplete="off"
+                   style="width:100%;margin-top:var(--space-2);background:transparent;border:1px solid var(--border);
+                          border-radius:var(--radius-sm);padding:var(--space-2)">
+            <div class="hero__actions" style="margin-top:var(--space-3)">
+                <button type="button" class="button button--small" id="h-bank-complete">Finish linking</button>
+                <button type="button" class="button button--small button--ghost" id="h-bank-done">Done</button>
+            </div>
+        </div>
+        <p class="note" id="h-bank-error" style="margin-top:var(--space-3)"></p>
+    </div>`);
+
+    const error = (message) => setHtml(qs('#h-bank-error'), escapeHtml(message ?? ''));
+    qs('#h-bank-cancel')?.addEventListener('click', closeImport);
+    qs('#h-bank-start')?.addEventListener('click', async () => {
+        error('');
+        try {
+            const { url } = await api.connectBank(qs('#h-bank-choice').value);
+            window.open(url, '_blank', 'noopener');
+            qs('#h-bank-finish').hidden = false;
+        } catch (e) {
+            error(e.message);
+        }
+    });
+    qs('#h-bank-complete')?.addEventListener('click', async () => {
+        error('');
+        try {
+            const { result } = await api.completeBank(qs('#h-bank-url').value);
+            toast(`${result.bank} linked: ${result.accounts} account(s).`, 'success');
+            (result.notes ?? []).forEach((note) => toast(note, 'info'));
+            closeImport();
+            await renderHoldingsView(main);
+        } catch (e) {
+            error(e.message);
+        }
+    });
+    qs('#h-bank-done')?.addEventListener('click', async () => {
+        closeImport();
+        await renderHoldingsView(main);
+    });
+}
 
 function openFunds() {
     const backdrop = qs('#h-import-backdrop');

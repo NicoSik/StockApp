@@ -4,9 +4,10 @@ A local stock app with two halves that never mix:
 
 - **Watchlists, charts and a paper portfolio** — US equities from Alpaca,
   simulated trades only.
-- **Holdings** — real accounts from DNB, Nordnet and eToro, valued in NOK.
-  Prices from Yahoo (Oslo Børs, Stockholm, Norwegian funds), exchange rates
-  from Norges Bank, eToro positions from its own API.
+- **Holdings** — real accounts from DNB, Nordnet and eToro, plus bank
+  balances, valued in NOK. Prices from Yahoo (Oslo Børs, Stockholm, Norwegian
+  funds), exchange rates from Norges Bank, eToro positions from its own API,
+  bank balances through Enable Banking.
 
 Java 17 + Javalin 7, PostgreSQL, a vanilla-JS front end with no build step.
 Single user, localhost only, no authentication.
@@ -26,11 +27,12 @@ read the one for the folder you are working in.
   `double` and are converted at that boundary — never accumulate doubles.
 - **Every schema change is a new numbered migration**, appended to `MIGRATIONS`
   in `Db.java`. Never edit one that has shipped.
-- **Credentials only in `.env`.** Never in a tracked file.
+- **Credentials only in `.env`.** Never in a tracked file. Key files (the
+  Enable Banking `.pem`) live outside the repository; `.env` holds the path.
 - **Log through SLF4J** (`LoggerFactory.getLogger(X.class)`), never
   `System.out`.
-- **One package and client per external API** — `alpaca/`, `etoro/`, `yahoo/`,
-  `norgesbank/` — each derived from the shared `OkHttpClient` built in
+- **One package and client per external API** — `alpaca/`, `etoro/`,
+  `enablebanking/`, `yahoo/`, `norgesbank/` — each derived from the shared `OkHttpClient` built in
   `App.java`.
 - **HTTP errors:** throw `BadRequest`, `NotFound` or a domain exception. Status
   codes are mapped in one place, `web/ErrorHandlers`.
@@ -63,7 +65,7 @@ colour-blind safety, and information density in the stat rail. The rules are in
 
 ## Definition of done
 
-1. `cd demo && ./mvnw clean test` passes.
+1. `cd demo && ./mvnw clean test` passes, and so does CI on the pull request.
 2. The app starts and the affected screen has been driven in a browser.
 3. No console errors; no horizontal page scroll at 375 px wide.
 4. Correct in light and dark, and while the market is closed.

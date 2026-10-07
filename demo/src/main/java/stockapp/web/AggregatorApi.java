@@ -8,12 +8,15 @@ import io.javalin.http.Context;
 import io.javalin.http.HttpStatus;
 import io.javalin.http.UploadedFile;
 import stockapp.Config;
+import stockapp.enablebanking.EnableBankingException;
 import stockapp.etoro.EtoroClient;
 import stockapp.etoro.EtoroException;
 import stockapp.importer.ImportException;
 import stockapp.repo.AccountRepo;
 import stockapp.repo.InstrumentRepo;
+import stockapp.service.BankSyncService;
 import stockapp.service.EtoroSyncService;
+import stockapp.service.HoldingsHistorySync;
 import stockapp.service.ImportService;
 import stockapp.service.ValuationService;
 import stockapp.yahoo.YahooClient;
@@ -43,24 +46,30 @@ public final class AggregatorApi {
     private final InstrumentRepo instruments;
     private final ImportService imports;
     private final ValuationService valuation;
+    private final HoldingsHistorySync historySync;
     private final YahooClient yahoo;
     private final EtoroSyncService etoro;
     private final EtoroClient etoroClient;
+    private final BankSyncService bankSync;
 
     public AggregatorApi(AccountRepo accounts,
                          InstrumentRepo instruments,
                          ImportService imports,
                          ValuationService valuation,
+                         HoldingsHistorySync historySync,
                          YahooClient yahoo,
                          EtoroSyncService etoro,
-                         EtoroClient etoroClient) {
+                         EtoroClient etoroClient,
+                         BankSyncService bankSync) {
         this.accounts = accounts;
         this.instruments = instruments;
         this.imports = imports;
         this.valuation = valuation;
+        this.historySync = historySync;
         this.yahoo = yahoo;
         this.etoro = etoro;
         this.etoroClient = etoroClient;
+        this.bankSync = bankSync;
     }
 
     public void register(RoutesConfig routes) {
@@ -80,6 +89,14 @@ public final class AggregatorApi {
         // Backs the reconcile screen: lets the user search for the right symbol
         // when the automatic match was refused.
         routes.get("/api/holdings/lookup", this::lookup);
+
+        // Bank balances through Enable Banking: link with BankID, then sync.
+        routes.get("/api/holdings/banks", this::bankStatus);
+        routes.get("/api/holdings/banks/available", ctx -> ctx.json(requireBanks().banks()));
+        routes.post("/api/holdings/banks/connect", this::connectBank);
+        routes.get("/api/holdings/banks/callback", this::bankCallback);
+        routes.post("/api/holdings/banks/complete", this::completeBank);
+        routes.post("/api/holdings/banks/sync", this::syncBanks);
     }
 
     // ---------------------------------------------------------------- import
@@ -186,6 +203,8 @@ public final class AggregatorApi {
         }
 
         ImportService.Result result = imports.commit(previewId, overrides, skip);
+        // A new snapshot can bring symbols the history has no closes for yet.
+        historySync.refreshInBackground();
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("result", result);
         response.put("holdings", valuation.valueEverything());
@@ -210,6 +229,7 @@ public final class AggregatorApi {
         }
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("result", etoro.sync());
+        historySync.refreshInBackground();
         response.put("holdings", valuation.valueEverything());
         ctx.status(HttpStatus.CREATED).json(response);
     }
@@ -234,6 +254,82 @@ public final class AggregatorApi {
     }
 
     // ---------------------------------------------------------------- lookup
+
+    // ----------------------------------------------------------------- banks
+
+    private void bankStatus(Context ctx) {
+        Map<String, Object> status = new LinkedHashMap<>();
+        status.put("configured", bankSync.configured());
+        status.put("redirectUrl", bankSync.redirectUrl());
+        status.put("links", bankSync.links());
+        ctx.json(status);
+    }
+
+    private void connectBank(Context ctx) {
+        String bank = Json.requireString(Json.parseObject(ctx.body()), "bank");
+        ctx.json(Map.of("url", requireBanks().connect(bank)));
+    }
+
+    /**
+     * Where the bank sends the browser after BankID, when the registered
+     * callback is this app. A browser lands here, not a fetch, so the answer is
+     * a small page rather than JSON.
+     */
+    private void bankCallback(Context ctx) {
+        String title;
+        String message;
+        try {
+            BankSyncService.Result result = requireBanks().completeFromUrl(ctx.fullUrl());
+            historySync.refreshInBackground();
+            title = result.bank() + " is linked";
+            message = result.accounts() + " account(s) added to your holdings as " + result.accountName() + ".";
+        } catch (EnableBankingException e) {
+            title = "The bank was not linked";
+            message = e.getMessage();
+        }
+        ctx.contentType("text/html; charset=utf-8").result("""
+                <!doctype html><html lang="en"><head><meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <meta name="color-scheme" content="light dark">
+                <title>Ticker</title></head>
+                <body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">
+                <h1 style="font-size:1.4rem">%s</h1><p>%s</p>
+                <p><a href="/holdings">Back to holdings</a></p></body></html>
+                """.formatted(escape(title), escape(message)));
+    }
+
+    /** The fallback when the bank sends the browser somewhere else: the user pastes that address. */
+    private void completeBank(Context ctx) {
+        String url = Json.requireString(Json.parseObject(ctx.body()), "url");
+        BankSyncService.Result result = requireBanks().completeFromUrl(url);
+        historySync.refreshInBackground();
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("result", result);
+        response.put("holdings", valuation.valueEverything());
+        ctx.status(HttpStatus.CREATED).json(response);
+    }
+
+    private void syncBanks(Context ctx) {
+        List<BankSyncService.Result> results = requireBanks().syncAll();
+        historySync.refreshInBackground();
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("results", results);
+        response.put("holdings", valuation.valueEverything());
+        ctx.status(HttpStatus.CREATED).json(response);
+    }
+
+    private BankSyncService requireBanks() {
+        if (!bankSync.configured()) {
+            throw new BadRequest("Bank balances are not configured. Set ENABLE_BANKING_APP_ID and "
+                    + "ENABLE_BANKING_KEY_FILE in .env, then restart. See the README, Bank balances.");
+        }
+        return bankSync;
+    }
+
+    private static String escape(String text) {
+        return text == null ? "" : text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace("\"", "&quot;");
+    }
 
     private void lookup(Context ctx) {
         String query = ctx.queryParam("q");

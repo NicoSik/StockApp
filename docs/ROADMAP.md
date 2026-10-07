@@ -5,11 +5,6 @@ complete as it stands.
 
 ## Next
 
-**Read the ISIN from DNB's holdings workbook.** `DNBBeholdning.xlsx` carries
-an ISIN on every row, the one exact identifier any export offers, but its rows
-are still matched by name. Passing it through to the resolver would turn an
-inference into a lookup.
-
 **Live streaming instead of polling.** Alpaca has a WebSocket feed for trades
 and quotes. Replacing the 15-second poll would make prices tick in real time
 and cut request volume to near zero. Javalin has first-class WebSocket support,

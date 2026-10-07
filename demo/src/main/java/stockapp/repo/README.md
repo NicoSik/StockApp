@@ -12,9 +12,11 @@ Paper trading:
 - **`AlertRepo`** — `create`, `listAll`, `find`, `delete`, `pending()` (unfired, with symbol), `markTriggered(id, price)` (fires once).
 
 Holdings:
-- **`AccountRepo`** — `ensureAccount`, `listAccounts`, `findAccount`, `writeSnapshot(…)` (replaces that date's snapshot in one transaction), `latestSnapshot`, `holdings(snapshotId)`, `valueHistory()` (real accounts' combined value per date).
+- **`AccountRepo`** — `ensureAccount`, `listAccounts`, `findAccount`, `writeSnapshot(…)` (replaces that date's snapshot in one transaction), `snapshots(accountId)` (oldest first), `latestSnapshot`, `holdings(snapshotId)`.
 - **`InstrumentRepo`** — `upsert`, `upsertExternal` (keyed by a broker's own id, e.g. eToro), `findById`, `findBySymbol`, `findByAlias`, `linkAlias`, `listAll`.
-- **`FxRepo`** — `save(date, rates)`, and `latest()` for when Norges Bank is down.
+- **`FxRepo`** — `save(date, rates)`, and `latest()` for when Norges Bank is down. `saveHistory` and `history(from)` store and read dated rates for the value history.
+- **`BankLinkRepo`** — bank consents through Enable Banking and their accounts: `save(bank, country, session)` (replaces that bank's earlier link), `all()`.
+- **`ClosingPriceRepo`** — daily closes for priced holdings, keyed by symbol: `save(symbol, closes)`, `storedRange(symbol)`, `closes(symbols, from)`.
 
 ## Not here
 

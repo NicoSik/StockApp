@@ -7,7 +7,8 @@ authoritative source for a Norwegian portfolio.
 
 **`NorgesBankClient`**
 - `latest(currencies)` — the latest published rate for each currency, as NOK per one unit.
-- `parse(csv)` — reads the CSV response and applies `UNIT_MULT`.
+- `history(currencies, from, to)` — every rate published in a date range, per currency. Business days only.
+- `parse(csv)`, `parseHistory(csv)` — read the CSV response and apply `UNIT_MULT`.
 
 ## Not here
 

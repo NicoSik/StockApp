@@ -34,8 +34,11 @@ public final class Db implements AutoCloseable {
      * Migrations are listed explicitly rather than discovered by scanning the
      * classpath, because directory listing does not work inside a shaded jar.
      * Append new files here; never edit one that has already shipped.
+     *
+     * <p>Package-private so {@code MigrationsTest} can check it against the
+     * files on disk - a migration missing from this list never runs.
      */
-    private static final String[] MIGRATIONS = {
+    static final String[] MIGRATIONS = {
             "V001__baseline.sql",
             "V002__stock_price_ohlcv.sql",
             "V003__watchlists.sql",
@@ -46,6 +49,8 @@ public final class Db implements AutoCloseable {
             "V008__linked_accounts.sql",
             "V009__simulated_accounts.sql",
             "V010__snapshot_cost_basis.sql",
+            "V011__instrument_close.sql",
+            "V012__bank_links.sql",
     };
 
     private final HikariDataSource dataSource;

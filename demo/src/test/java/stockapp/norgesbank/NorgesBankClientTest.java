@@ -3,7 +3,10 @@ package stockapp.norgesbank;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -79,5 +82,36 @@ class NorgesBankClientTest {
     void emptyOrHeaderOnlyInputYieldsNoRates() {
         assertTrue(NorgesBankClient.parse("").isEmpty());
         assertTrue(NorgesBankClient.parse("BASE_CUR;OBS_VALUE").isEmpty());
+    }
+
+    // ------------------------------------------------------------- history
+
+    /** Two business days for two currencies, as a date-range request returns them. */
+    private static final String HISTORY = String.join("\n",
+            "BASE_CUR;QUOTE_CUR;UNIT_MULT;TIME_PERIOD;OBS_VALUE",
+            "USD;NOK;0;2026-10-02;9.6494",
+            "USD;NOK;0;2026-10-05;9.6015",
+            "SEK;NOK;2;2026-10-02;101.20",
+            "SEK;NOK;2;2026-10-05;100.80");
+
+    @Test
+    void historyKeepsEveryDatePerCurrency() {
+        Map<String, NavigableMap<LocalDate, BigDecimal>> history = NorgesBankClient.parseHistory(HISTORY);
+        assertEquals(List.of(LocalDate.parse("2026-10-02"), LocalDate.parse("2026-10-05")),
+                List.copyOf(history.get("USD").keySet()));
+        assertEquals(0, history.get("USD").get(LocalDate.parse("2026-10-05")).compareTo(new BigDecimal("9.6015")));
+    }
+
+    @Test
+    void historyNormalisesPerHundredQuotesToo() {
+        Map<String, NavigableMap<LocalDate, BigDecimal>> history = NorgesBankClient.parseHistory(HISTORY);
+        assertEquals(0, history.get("SEK").get(LocalDate.parse("2026-10-02")).compareTo(new BigDecimal("1.012")));
+    }
+
+    @Test
+    void historySkipsRowsWithoutADate() {
+        // The latest-rates response format, which a history caller must not
+        // mistake for a dated series.
+        assertTrue(NorgesBankClient.parseHistory(CSV.replace("TIME_PERIOD", "PERIOD")).isEmpty());
     }
 }

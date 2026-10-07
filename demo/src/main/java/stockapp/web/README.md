@@ -7,7 +7,7 @@ endpoint is documented in `docs/API.md`.
 ## What's inside
 
 - **`Api`** — `register(routes)`: health, search, quotes, rail rows, charts, watchlists, the paper portfolio and alerts, ending with the JSON 404 catch-all.
-- **`AggregatorApi`** — `register(routes)`: holdings, history, file imports, fund entry, eToro sync and symbol lookup.
+- **`AggregatorApi`** — `register(routes)`: holdings, history, file imports, fund entry, eToro sync, bank linking and sync, and symbol lookup.
 - **`ErrorHandlers`** — `register(routes)`: every exception to a status code and `{"error": …}`.
 - **`Json`** — `parseObject(body)`, `requireString`, `optString`, `requirePositiveDecimal`, `requireOneOf`; `write(value)` for responses.
 - **`GsonMapper`** — makes Javalin's `ctx.json()` use Gson.
@@ -29,3 +29,5 @@ endpoint is documented in `docs/API.md`.
 - The `/api/*` catch-all is registered last, so an unknown path gets a JSON 404
   instead of the single-page app's `index.html`.
 - A new or changed endpoint is updated in `docs/API.md` in the same change.
+  `ApiDocsTest` fails the build when a registered route is missing from the
+  doc, or the doc names a route that no longer exists.

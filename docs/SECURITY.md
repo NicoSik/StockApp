@@ -28,6 +28,20 @@ on a key, both worth setting. Demo and Real are separate environments with
 separate keys — a demo key cannot touch a real account, which makes it the safer
 one to try first.
 
+**The Enable Banking key is a file, not a value.** The application's private
+key is the `.pem` the control panel downloads, and `.env` holds only its path
+(`ENABLE_BANKING_KEY_FILE`). Keep the file outside the repository; `*.pem` and
+`*.key` are gitignored as a backstop. The key never leaves the machine: each
+request carries a token signed with it, valid for an hour. Whoever holds the key
+can read every bank account linked to the application until each consent
+expires, so a leaked key means revoking the consents at the bank and
+registering a new application.
+
+Bank access itself is consented with BankID at the bank, is read-only, and
+lasts at most 180 days. Ticker never sees a BankID or bank credential. A bank
+callback is accepted only with a `state` this app issued in the last 30
+minutes, so a crafted link cannot attach someone else's consent.
+
 ## Network exposure
 
 The app listens on **127.0.0.1 only** and has **no authentication**. That is appropriate
