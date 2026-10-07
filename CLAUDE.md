@@ -11,7 +11,9 @@ A local stock app with two halves that never mix:
 Java 17 + Javalin 7, PostgreSQL, a vanilla-JS front end with no build step.
 Single user, localhost only, no authentication.
 
-Read `docs/ARCHITECTURE.md` before changing anything structural.
+Read `docs/ARCHITECTURE.md` before changing anything structural. Every code
+folder has a `README.md` with its purpose, its rules and what is inside it —
+read the one for the folder you are working in.
 
 ## Constraints
 
@@ -34,6 +36,14 @@ Read `docs/ARCHITECTURE.md` before changing anything structural.
   codes are mapped in one place, `web/ErrorHandlers`.
 - **The server binds to 127.0.0.1.** It serves real holdings without
   authentication; it must never listen on other interfaces.
+- **Keep folder READMEs true.** Each says what the folder is for, its rules,
+  and under "What's inside" every class or module with its main functions, one
+  short line each. A `Stop` hook (`.claude/hooks/check_folder_readmes.py`) sends
+  you back when code in a folder changed and its README did not, or when a
+  source file is not named in it. Update the README only where it is no longer
+  true.
+- **No Claude attribution** in commits or pull requests — no `Co-Authored-By`,
+  no "Generated with" footer. `.claude/settings.json` turns it off.
 
 ## Interface direction
 
