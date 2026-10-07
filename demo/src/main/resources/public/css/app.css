@@ -931,6 +931,12 @@ ul {
     color: var(--down);
 }
 
+/* Neither direction: a bank balance, exact and current. */
+.side-chip[data-side="NONE"] {
+    background: var(--surface-raised);
+    color: var(--text-secondary);
+}
+
 /* ------------------------------------------------------------ search palette */
 
 .palette-backdrop {
