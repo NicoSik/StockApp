@@ -7,7 +7,7 @@ endpoint is documented in `docs/API.md`.
 ## What's inside
 
 - **`Api`** — `register(routes)`: health, search, quotes, rail rows, charts, watchlists, the paper portfolio and alerts, ending with the JSON 404 catch-all.
-- **`AggregatorApi`** — `register(routes)`: holdings, history, file imports, fund entry, eToro sync, bank linking and sync, and symbol lookup.
+- **`AggregatorApi`** — `register(routes)`: holdings, history, file imports, fund entry, eToro sync, bank linking and sync, symbol lookup, and fixing a holding's match.
 - **`ErrorHandlers`** — `register(routes)`: every exception to a status code and `{"error": …}`.
 - **`Json`** — `parseObject(body)`, `requireString`, `optString`, `requirePositiveDecimal`, `requireOneOf`; `write(value)` for responses.
 - **`GsonMapper`** — makes Javalin's `ctx.json()` use Gson.

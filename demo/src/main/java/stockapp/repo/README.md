@@ -12,7 +12,7 @@ Paper trading:
 - **`AlertRepo`** — `create`, `listAll`, `find`, `delete`, `pending()` (unfired, with symbol), `markTriggered(id, price)` (fires once).
 
 Holdings:
-- **`AccountRepo`** — `ensureAccount`, `listAccounts`, `findAccount`, `writeSnapshot(…)` (replaces that date's snapshot in one transaction), `snapshots(accountId)` (oldest first), `latestSnapshot`, `holdings(snapshotId)`.
+- **`AccountRepo`** — `ensureAccount`, `listAccounts`, `findAccount`, `writeSnapshot(…)` (replaces that date's snapshot in one transaction, with each imported row's label), `snapshots(accountId)` (oldest first), `latestSnapshot`, `holdings(snapshotId)`, `label(snapshotId, instrumentId)`, and `remapInstrument(accountId, from, to)`, which moves one account's holdings to another instrument in every snapshot.
 - **`InstrumentRepo`** — `upsert`, `upsertExternal` (keyed by a broker's own id, e.g. eToro), `findById`, `findBySymbol`, `findByAlias`, `linkAlias`, `listAll`.
 - **`FxRepo`** — `save(date, rates)`, and `latest()` for when Norges Bank is down. `saveHistory` and `history(from)` store and read dated rates for the value history.
 - **`BankLinkRepo`** — bank consents through Enable Banking and their accounts: `save(bank, country, session)` (replaces that bank's earlier link), `all()`.
@@ -29,6 +29,8 @@ Holdings:
   built from strings, including search.
 - **Holdings are snapshots.** An import writes a whole dated snapshot of an
   account; it never edits holdings in place. Re-importing a date replaces it.
+  The one exception is `remapInstrument`: fixing a holding's match changes
+  which instrument it is, not what the broker reported.
 - **Trades lock first.** `PortfolioRepo` takes `SELECT … FOR UPDATE` on the
   portfolio and position rows before checking buying power, so two concurrent
   orders cannot both pass.

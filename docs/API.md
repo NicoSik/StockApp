@@ -203,7 +203,7 @@ imported holdings, valued in NOK.
                  "kind": "STOCK", "currency": "NOK", "quantity": 120,
                  "avgCost": null, "price": 300.25, "valueNok": 36030.00,
                  "costBasisNok": null, "gainNok": null, "gainPercent": null,
-                 "weight": 9.94, "live": true, "accountName": "DNB" }],
+                 "weight": 9.94, "live": true, "accountName": "DNB", "instrumentId": 42 }],
   "cash": [{ "name": "Brukskonto", "kind": "OTHER", "currency": "NOK",
              "quantity": 50000.00, "valueNok": 50000.00, "weight": null,
              "live": false, "accountName": "DNB (bank)" }],
@@ -296,6 +296,27 @@ implies, with a live price for each candidate so the right one is obvious.
 [{ "symbol": "LIDR", "name": "AEye, Inc.", "exchange": "NMS",
    "type": "EQUITY", "price": 2.14, "currency": "USD" }]
 ```
+
+### `POST /api/holdings/accounts/{accountId}/instruments/{instrumentId}/match`
+```json
+{ "symbol": "LIDR" }
+```
+Gives an imported holding that is not priced live the symbol picked for it,
+without importing the file again; the same choice as on the reconcile screen.
+`instrumentId` is the holding's, from `holdings[].instrumentId`. The holding
+moves to that symbol's instrument in every snapshot of the account that has
+it, is priced live from then on, and the match is remembered for the
+account's next import under the label the row came in under. Returns
+`{"result": {...}, "holdings": {...}}`, where `result` is
+`{ "symbol", "name", "holdings", "remembered" }`. `remembered` is false for a
+holding imported before labels were kept and matched wrongly at the time; the
+next import asks about it once more.
+
+422 when the account is synced (eToro, a bank) rather than imported, when the
+holding is not in the account's latest snapshot, when the symbol has no price,
+or when it trades in another currency than the holding: the live price is
+converted from the holding's currency, so another listing would be valued
+wrong by the exchange rate.
 
 ### `GET /api/holdings/etoro/status`
 ```json

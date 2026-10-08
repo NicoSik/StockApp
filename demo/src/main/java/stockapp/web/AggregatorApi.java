@@ -89,6 +89,8 @@ public final class AggregatorApi {
         // Backs the reconcile screen: lets the user search for the right symbol
         // when the automatic match was refused.
         routes.get("/api/holdings/lookup", this::lookup);
+        // The same choice after the import: fix a holding that is not priced live.
+        routes.post("/api/holdings/accounts/{accountId}/instruments/{instrumentId}/match", this::fixMatch);
 
         // Bank balances through Enable Banking: link with BankID, then sync.
         routes.get("/api/holdings/banks", this::bankStatus);
@@ -329,6 +331,26 @@ public final class AggregatorApi {
     private static String escape(String text) {
         return text == null ? "" : text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                 .replace("\"", "&quot;");
+    }
+
+    private void fixMatch(Context ctx) {
+        String symbol = Json.requireString(Json.parseObject(ctx.body()), "symbol");
+        ImportService.Fixed fixed = imports.fixMatch(
+                idParam(ctx, "accountId"), idParam(ctx, "instrumentId"), symbol);
+        // A newly priced symbol has no stored closes for the history yet.
+        historySync.refreshInBackground();
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("result", fixed);
+        response.put("holdings", valuation.valueEverything());
+        ctx.json(response);
+    }
+
+    private static int idParam(Context ctx, String name) {
+        try {
+            return Integer.parseInt(ctx.pathParam(name));
+        } catch (NumberFormatException e) {
+            throw new NotFound("\"" + ctx.pathParam(name) + "\" is not a valid " + name + ".");
+        }
     }
 
     private void lookup(Context ctx) {

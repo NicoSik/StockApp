@@ -10,12 +10,14 @@ import stockapp.importer.ParsedHolding;
 import stockapp.market.InstrumentResolver;
 import stockapp.repo.AccountRepo;
 import stockapp.repo.InstrumentRepo;
+import stockapp.yahoo.YahooClient;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -244,6 +246,8 @@ public final class ImportService {
                 preview.accountName(), preview.broker(), "IMPORTED");
 
         List<AccountRepo.StoredHolding> stored = new ArrayList<>();
+        // Kept with each holding so a match fixed later can be remembered.
+        Map<Integer, String> labels = new HashMap<>();
         int skipped = 0;
         for (PreviewRow row : preview.rows()) {
             if (skip != null && skip.contains(row.index())) {
@@ -289,6 +293,7 @@ public final class ImportService {
             if (verified) {
                 instruments.linkAlias(preview.broker(), aliasFor(row), instrument.id());
             }
+            labels.putIfAbsent(instrument.id(), aliasFor(row));
             stored.add(new AccountRepo.StoredHolding(
                     instrument.id(), instrument.symbol(), instrument.name(), row.currency(),
                     instrument.kind(), instrument.priceSource(), instrument.verified(),
@@ -301,7 +306,7 @@ public final class ImportService {
 
         int snapshotId = accounts.writeSnapshot(
                 account.id(), preview.asOf(), preview.sourceFile(), preview.totalNok(),
-                preview.costBasisNok(), stored);
+                preview.costBasisNok(), stored, labels);
         pending.invalidate(previewId);
 
         return new Result(account.id(), account.name(), snapshotId, stored.size(), skipped, preview.totalNok());
@@ -309,6 +314,114 @@ public final class ImportService {
 
     public record Result(int accountId, String accountName, int snapshotId,
                          int imported, int skipped, BigDecimal totalNok) {
+    }
+
+    // -------------------------------------------------------------- fix match
+
+    /**
+     * What {@link #fixMatch} did.
+     *
+     * @param holdings   how many holdings were repriced, across every snapshot
+     *                   of the account that has this one
+     * @param remembered whether the next import will know the match without
+     *                   asking; false for holdings imported before labels
+     *                   were kept, whose label is not known
+     */
+    public record Fixed(String symbol, String name, int holdings, boolean remembered) {
+    }
+
+    /**
+     * Gives an imported holding the symbol the user picked, outside an import:
+     * the same as choosing it on the preview screen, after the fact. The
+     * holding is priced live from then on, in every snapshot of the account
+     * that has it, and the match is remembered for the next import.
+     *
+     * <p>The holding is moved to the chosen symbol's instrument rather than
+     * the instrument it has being edited: an unconfirmed instrument can be
+     * shared by holdings in other accounts that are something else.
+     *
+     * @throws ImportException when the account is synced rather than imported,
+     *         the holding is not in its latest snapshot, or the symbol has no
+     *         price in the holding's currency
+     */
+    public Fixed fixMatch(int accountId, int instrumentId, String symbol) {
+        AccountRepo.Account account = accounts.findAccount(accountId)
+                .orElseThrow(() -> new ImportException("There is no account " + accountId + "."));
+        if ("LINKED".equals(account.kind())) {
+            throw new ImportException(account.name() + " is synced, and its source values its holdings; "
+                    + "there is no match to fix.");
+        }
+        AccountRepo.Snapshot latest = accounts.latestSnapshot(accountId)
+                .orElseThrow(() -> new ImportException(account.name() + " has nothing imported."));
+        AccountRepo.StoredHolding holding = accounts.holdings(latest.id()).stream()
+                .filter(candidate -> candidate.instrumentId() == instrumentId)
+                .findFirst()
+                .orElseThrow(() -> new ImportException("That holding is not in " + account.name()
+                        + "'s latest import."));
+        InstrumentRepo.Instrument current = instruments.findById(instrumentId).orElseThrow();
+
+        YahooClient.Quote quote = resolver.describe(symbol)
+                .orElseThrow(() -> new ImportException("No price for " + (symbol == null ? "" : symbol.trim())
+                        + ". Check the symbol, with its exchange suffix (EQNR.OL, VOLV-B.ST)."));
+        String refusal = currencyRefusal(holding.currency(), quote);
+        if (refusal != null) {
+            throw new ImportException(refusal);
+        }
+
+        String name = quote.name() != null && !quote.name().isBlank() ? quote.name() : holding.name();
+        // Picked by hand, so verified - exactly as on the preview screen.
+        InstrumentRepo.Instrument chosen = instruments.upsert(
+                quote.symbol(), name, holding.currency(), current.kind(), "YAHOO", true);
+        int moved = chosen.id() == current.id()
+                ? 1  // the guess was right; confirming it is the whole fix
+                : remap(accountId, current.id(), chosen.id(), quote.symbol());
+
+        String label = rememberUnder(accounts.label(latest.id(), instrumentId).orElse(null), current);
+        if (label != null) {
+            instruments.linkAlias(account.broker(), label, chosen.id());
+        }
+        return new Fixed(quote.symbol(), name, moved, label != null);
+    }
+
+    private int remap(int accountId, int from, int to, String symbol) {
+        try {
+            return accounts.remapInstrument(accountId, from, to);
+        } catch (IllegalArgumentException e) {
+            throw new ImportException("This account already holds " + symbol
+                    + " as a separate line, so this holding cannot become it too.");
+        }
+    }
+
+    /**
+     * Why a quote cannot price a holding, or null when it can. Valuation
+     * converts the live price from the holding's currency, so a listing in
+     * another currency would be valued wrong by the exchange rate.
+     */
+    static String currencyRefusal(String holdingCurrency, YahooClient.Quote quote) {
+        if (holdingCurrency == null || holdingCurrency.isBlank()
+                || quote.currency() == null || quote.currency().isBlank()
+                || holdingCurrency.equalsIgnoreCase(quote.currency())) {
+            return null;
+        }
+        return quote.symbol() + " trades in " + quote.currency() + ", but this holding is in "
+                + holdingCurrency + ". Pick the listing that trades in " + holdingCurrency + ".";
+    }
+
+    /**
+     * The label to remember a fixed match under, so the next import finds it:
+     * the one the holding came in under. Older holdings did not keep one; for
+     * those, an instrument the import never matched still carries the row's own
+     * name, but one it matched wrongly carries the wrong match's name, which
+     * must not be remembered. Null when there is nothing safe to remember.
+     */
+    static String rememberUnder(String label, InstrumentRepo.Instrument current) {
+        if (label != null && !label.isBlank()) {
+            return label.trim();
+        }
+        if (current.symbol() == null || current.symbol().isBlank()) {
+            return current.name() == null || current.name().isBlank() ? null : current.name().trim();
+        }
+        return null;
     }
 
     // ---------------------------------------------------------------- helpers

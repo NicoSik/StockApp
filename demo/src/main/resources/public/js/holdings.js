@@ -88,6 +88,11 @@ export async function renderHoldingsView(main) {
     setHtml(main, markup(data, history, etoro, banks));
     mountChart(data, history);
     bind(main);
+    // On the body, not the buttons: sorting and filtering re-render the rows.
+    qs('#h-rows', main)?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-fix]');
+        if (button) openFixMatch(main, Number(button.dataset.fixAccount), Number(button.dataset.fix));
+    });
     bindSorting();
     bindAccountFilter();
     schedulePriceRefresh(data);
@@ -313,7 +318,23 @@ function priceChip(holding) {
     if (isBankAccount(accountsByName.get(holding.accountName)) && daysSince(asOf) <= BANK_FRESH_DAYS) {
         return '<span class="side-chip" data-side="NONE">balance</span>';
     }
-    return `<span class="side-chip" data-side="SELL">as of ${escapeHtml(describeAsOf(asOf))}</span>`;
+    const chip = `<span class="side-chip" data-side="SELL">as of ${escapeHtml(describeAsOf(asOf))}</span>`;
+    const account = accountsByName.get(holding.accountName);
+    return canFixMatch(holding, account)
+        ? `${chip} <button type="button" class="button button--small button--ghost" data-fix="${
+            escapeHtml(String(holding.instrumentId))}" data-fix-account="${escapeHtml(String(account.id))}"
+            aria-label="Fix the match for ${escapeHtml(holding.name)}">Fix match</button>`
+        : chip;
+}
+
+/**
+ * Whether a row can be given a symbol by hand. Only imported holdings: eToro
+ * and banks value their own, and practice money is not worth pricing.
+ */
+function canFixMatch(holding, account) {
+    return !holding.live && account && !account.simulated
+        && !isBankAccount(account) && account.broker !== 'ETORO'
+        && holding.instrumentId !== undefined && holding.instrumentId !== null;
 }
 
 /** The date the named account was last valued, for a row-level label. */
@@ -905,6 +926,136 @@ const FUND_ACCOUNTS = [
 
 /** Which fund account the dialog is editing. */
 let fundAccount = FUND_ACCOUNTS[0].name;
+
+// ================================================================= fix match
+
+/**
+ * Gives a holding that is not priced live the symbol it should have, without
+ * importing the file again: the same search as the import's preview screen,
+ * after the fact. The file's own price is shown next to each candidate, since
+ * that is what tells the right listing from a namesake.
+ */
+function openFixMatch(main, accountId, instrumentId) {
+    const account = [...accountsByName.values()].find((a) => a.id === accountId);
+    const holding = account?.holdings?.find((h) => h.instrumentId === instrumentId);
+    const backdrop = qs('#h-import-backdrop');
+    if (!holding || !backdrop) return;
+
+    const filePrice = impliedPrice(holding);
+    backdrop.hidden = false;
+    document.addEventListener('keydown', escapeToClose);
+    setHtml(qs('#h-import-body'), `
+    <div style="padding:var(--space-5); max-height:80vh; overflow:auto">
+        <h2 class="card__title"><span>Fix match: ${escapeHtml(holding.name)}</span></h2>
+        <p class="note">${escapeHtml(account.name)} · ${fmt.shares(holding.quantity)} · ${
+            kr(holding.valueNok)} as of ${escapeHtml(describeAsOf(account.asOf))}${
+            filePrice ? ` · about ${filePrice.toFixed(2)} ${escapeHtml(holding.currency)} each in the file` : ''}.
+            Pick its listing and it is priced live from now on, and the next import knows it.</p>
+        <label class="note" for="h-fix-input" style="display:block;margin-top:var(--space-4)">
+            Search${holding.currency ? ` ${escapeHtml(holding.currency)} listings` : ''}</label>
+        <input type="search" id="h-fix-input" autocomplete="off" value="${escapeHtml(holding.name)}"
+               style="width:100%;margin-top:var(--space-2);background:transparent;border:1px solid var(--border);
+                      border-radius:var(--radius-sm);padding:var(--space-2)">
+        <div id="h-fix-results" style="margin-top:var(--space-3)" aria-live="polite"></div>
+        <p class="note" id="h-fix-error" style="margin-top:var(--space-3)"></p>
+        <div class="hero__actions" style="margin-top:var(--space-3)">
+            <button type="button" class="button button--small button--ghost" id="h-fix-cancel">Cancel</button>
+        </div>
+    </div>`);
+
+    const input = qs('#h-fix-input');
+    const results = qs('#h-fix-results');
+    let timer = null;
+    let latest = 0;
+    const search = async () => {
+        const term = input.value.trim();
+        if (!term) {
+            results.textContent = 'Type a name or a symbol.';
+            return;
+        }
+        const ticket = ++latest;
+        results.textContent = 'Searching…';
+        try {
+            const found = await api.lookupInstrument(term, holding.currency);
+            if (ticket !== latest) return;  // a newer search has taken over
+            // The server refuses another currency's listing, since the price
+            // would be converted from the wrong one; US listings have no
+            // suffix to filter by, so they are filtered here instead.
+            const matches = found.filter((match) => !match.currency || !holding.currency
+                || match.currency.toUpperCase() === holding.currency.toUpperCase());
+            setHtml(results, matches.length
+                ? matches.map((match) => fixCandidate(match, filePrice)).join('')
+                : `<span class="note">Nothing found${
+                    holding.currency ? ` on a ${escapeHtml(holding.currency)} market` : ''}.</span>`);
+        } catch (error) {
+            if (ticket === latest) setHtml(results, `<span class="note">${escapeHtml(error.message)}</span>`);
+        }
+    };
+    input.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(search, 250);
+    });
+    results.addEventListener('click', async (event) => {
+        const button = event.target.closest('[data-pick]');
+        if (!button) return;
+        setHtml(qs('#h-fix-error'), 'Saving…');
+        button.disabled = true;
+        try {
+            const { result } = await api.fixMatch(accountId, instrumentId, button.dataset.pick);
+            toast(`${result.name} (${result.symbol}) is priced live now.`, 'success');
+            if (!result.remembered) {
+                toast('The next import will ask about it once more. Pick the same listing there and '
+                    + 'it is remembered from then on.', 'info');
+            }
+            clearTimeout(timer);
+            closeImport();
+            await renderHoldingsView(main);
+        } catch (error) {
+            button.disabled = false;
+            setHtml(qs('#h-fix-error'), escapeHtml(error.message));
+        }
+    });
+    qs('#h-fix-cancel')?.addEventListener('click', () => {
+        clearTimeout(timer);
+        closeImport();
+    });
+    input.focus();
+    input.select();
+    search();
+}
+
+/**
+ * What one share was worth in the file, in the holding's own currency: its
+ * value over its quantity, converted back from NOK. Null when it cannot be
+ * worked out, rather than a misleading number.
+ */
+function impliedPrice(holding) {
+    const quantity = Number(holding.quantity);
+    const value = Number(holding.valueNok);
+    const currency = (holding.currency || 'NOK').toUpperCase();
+    const rate = currency === 'NOK' ? 1 : Number(shown?.fxRates?.[currency]);
+    if (!(quantity > 0) || !(value > 0) || !(rate > 0)) return null;
+    return value / quantity / rate;
+}
+
+/** One search result, with how far its price is from the file's. */
+function fixCandidate(match, filePrice) {
+    const price = Number(match.price);
+    const drift = filePrice && price > 0 ? (100 * (price - filePrice)) / filePrice : null;
+    return `
+    <button type="button" class="palette__item" data-pick="${escapeHtml(match.symbol)}"
+            style="border-radius:var(--radius-sm);padding-left:var(--space-3);padding-right:var(--space-3)">
+        <span class="palette__symbol">${escapeHtml(match.symbol)}</span>
+        <!-- Two lines, so the name is not squeezed out by the price on a phone. -->
+        <span style="display:flex;flex-direction:column;min-width:0">
+            <span class="palette__company">${escapeHtml(match.name || '')}${
+                match.exchange ? ` · ${escapeHtml(match.exchange)}` : ''}</span>
+            <span class="note">${match.price !== undefined && match.price !== null
+                ? `${price.toFixed(2)} ${escapeHtml(match.currency || '')}${
+                    drift === null ? '' : ` · ${fmt.signedPercent(drift)} vs file`}` : 'no price'}</span>
+        </span>
+    </button>`;
+}
 
 // ===================================================================== banks
 

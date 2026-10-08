@@ -88,8 +88,10 @@ public final class Valuation {
      *                     no intraday history behind it.
      * @param leverage  above 1 for a CFD, null for an ordinary holding
      * @param direction LONG or SHORT where the distinction exists
+     * @param instrumentId the stored instrument, so a holding can be re-matched
      */
-    public record ValuedHolding(String symbol,
+    public record ValuedHolding(int instrumentId,
+                                String symbol,
                                 String name,
                                 String kind,
                                 String currency,
@@ -110,7 +112,7 @@ public final class Valuation {
 
         /** The same holding with its share of the portfolio filled in. */
         ValuedHolding withWeight(BigDecimal weight) {
-            return new ValuedHolding(symbol, name, kind, currency, quantity, avgCost, price, valueNok,
+            return new ValuedHolding(instrumentId, symbol, name, kind, currency, quantity, avgCost, price, valueNok,
                     costBasisNok, gainNok, gainPercent, weight, dayChangeNok, dayChangePercent,
                     live, accountName, leverage, direction);
         }
@@ -520,6 +522,7 @@ public final class Valuation {
         BigDecimal gain = costBasis == null ? null : money(valueNok.subtract(costBasis));
 
         return new ValuedHolding(
+                stored.instrumentId(),
                 stored.symbol(),
                 stored.name(),
                 stored.kind(),

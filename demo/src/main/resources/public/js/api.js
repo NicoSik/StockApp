@@ -104,6 +104,10 @@ export const api = {
     previewFunds: (accountName, broker, funds) =>
         post('/api/holdings/funds/preview', { accountName, broker, funds }),
     lookupInstrument: (q, currency) => request(`/api/holdings/lookup${query({ q, currency })}`),
+    /** Gives a holding that is not priced live the symbol picked for it. */
+    fixMatch: (accountId, instrumentId, symbol) =>
+        post(`/api/holdings/accounts/${encodeURIComponent(accountId)}/instruments/${
+            encodeURIComponent(instrumentId)}/match`, { symbol }),
     etoroStatus: () => request('/api/holdings/etoro/status'),
     etoroSync: () => post('/api/holdings/etoro/sync'),
     bankStatus: () => request('/api/holdings/banks'),
