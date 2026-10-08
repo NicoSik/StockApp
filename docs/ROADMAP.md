@@ -51,6 +51,21 @@ be derived from stored daily bars without any new data source.
 **Export.** CSV of trades, or a JSON snapshot of the whole portfolio. Small,
 and it makes the paper portfolio useful outside the app.
 
+**Tell deposits from returns in the value history.** The chart cannot tell a
+market gain from money moved in: 50 000 kr transferred to Nordnet makes the
+line jump as though it were earned. Bank transactions through Enable Banking
+could fix that, narrowly: recognise the transfers between a linked bank and a
+broker, record them as contributions, and let the chart show "you added 50 000,
+the market added 3 000". Two things limit it. Banks describe a transfer each in
+their own way, so matching them needs rules per bank. And unattended access
+only reaches about 90 days back, so contributions are only known from when
+syncing began. Where both sides are tracked, a transfer already nets to zero
+in the combined total, so this matters most for an investments-only view.
+
+Deliberately not a transaction list. Spending, categories and budgets are a
+different app, and the full payment history is the most sensitive data a bank
+holds, served here without login.
+
 **Live sync for Nordnet and DNB, when they allow it.** Both still arrive as
 exported files, so their holdings are only as fresh as the last import. eToro
 shows what a live sync gives: a daily snapshot without anyone exporting

@@ -9,7 +9,7 @@ build step. Edit a file, reload the page.
 | `state.js` | State shared by the shell and the views |
 | `detail.js` | Stock view: header, chart, session stats, trade card, alerts |
 | `portfolio.js` | Paper portfolio: value curve, positions, trade log |
-| `holdings.js` | Real holdings: totals, accounts, imports, fund entry, eToro sync, bank linking |
+| `holdings.js` | Real holdings: totals, accounts, investments and cash, imports, fund entry, eToro sync, bank linking |
 | `chart.js` | Canvas renderer, scrub interaction, trend colour |
 | `sparkline.js` | The small rail chart — no animation, no observers |
 | `api.js` | Every `fetch`, and the one error shape |

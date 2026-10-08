@@ -124,6 +124,67 @@ class ValuationTest {
         assertAmount("6.90", holdings.get(2).weight());
     }
 
+    // --- bank balances --------------------------------------------------------
+    //
+    //  The shared portfolio, plus 14 500 kr in a linked bank account: the same
+    //  as the investments, so a weight or share diluted by the cash halves.
+
+    private static final AccountRepo.Account BANK = new AccountRepo.Account(
+            5, "DNB (bank)", BankSyncService.BROKER, "LINKED", "NOK", false);
+    private static final AccountRepo.StoredHolding BALANCE = new AccountRepo.StoredHolding(
+            14, null, "Brukskonto", "NOK", "OTHER", "NONE", true,
+            new BigDecimal("14500"), null, new BigDecimal("14500"));
+
+    private static Valuation.Totals portfolioWithBank() {
+        return Valuation.compute(List.of(
+                new Valuation.AccountInput(NORDNET, snapshot(1, "2026-08-14", null),
+                        List.of(AAPL, EQNR_UNVERIFIED)),
+                new Valuation.AccountInput(DNB, snapshot(2, "2026-08-10", new BigDecimal("800")),
+                        List.of(DNB_FUND)),
+                new Valuation.AccountInput(BANK, snapshot(5, "2026-08-15", null), List.of(BALANCE))
+        ), PRICES, FX, Map.of(), null);
+    }
+
+    @Test
+    void bankBalancesCountTowardsTheTotalButNotTheInvestments() {
+        Valuation.Totals totals = portfolioWithBank();
+        assertAmount("29000.00", totals.totalNok());
+        assertAmount("14500.00", totals.investmentsNok());
+        assertAmount("14500.00", totals.cashNok());
+    }
+
+    @Test
+    void theLiveShareIsOfTheInvestmentsNotTheCash() {
+        // The same as without the bank: a balance is exact, not unpriced.
+        Valuation.Totals totals = portfolioWithBank();
+        assertAmount("12000.00", totals.liveNok());
+        assertAmount("2500.00", totals.asOfNok());
+        assertAmount("82.76", totals.livePercent());
+    }
+
+    @Test
+    void weightsAreOfTheInvestmentsAndBalancesHaveNone() {
+        Valuation.Totals totals = portfolioWithBank();
+        assertEquals(List.of("Apple", "Equinor", "DNB Global Indeks"),
+                totals.holdings().stream().map(Valuation.ValuedHolding::name).toList(),
+                "the balance is not in the investments table");
+        assertAmount("82.76", totals.holdings().get(0).weight());
+        assertEquals(3, totals.holdingCount());
+
+        assertEquals(List.of("Brukskonto"),
+                totals.cash().stream().map(Valuation.ValuedHolding::name).toList());
+        assertNull(totals.cash().get(0).weight());
+        assertNull(account(totals, "DNB (bank)").holdings().get(0).weight());
+    }
+
+    @Test
+    void withoutABankThereIsNoCash() {
+        Valuation.Totals totals = portfolio();
+        assertAmount("0.00", totals.cashNok());
+        assertAmount("14500.00", totals.investmentsNok());
+        assertTrue(totals.cash().isEmpty());
+    }
+
     // --- accounts -------------------------------------------------------------
 
     @Test

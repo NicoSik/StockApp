@@ -191,8 +191,8 @@ imported holdings, valued in NOK.
 
 ### `GET /api/holdings`
 ```json
-{ "totalNok": 412500.00,
-  "liveNok": 411900.00, "asOfNok": 600.00, "livePercent": 99.85,
+{ "totalNok": 412500.00, "investmentsNok": 362500.00, "cashNok": 50000.00,
+  "liveNok": 361900.00, "asOfNok": 600.00, "livePercent": 99.83,
   "gainNok": 92500.00, "costBasisNok": 320000.00,
   "simulatedNok": 250000.00,
   "oldestAsOf": "2026-08-14", "accountCount": 2, "holdingCount": 12,
@@ -203,7 +203,10 @@ imported holdings, valued in NOK.
                  "kind": "STOCK", "currency": "NOK", "quantity": 120,
                  "avgCost": null, "price": 300.25, "valueNok": 36030.00,
                  "costBasisNok": null, "gainNok": null, "gainPercent": null,
-                 "weight": 8.73, "live": true, "accountName": "DNB" }],
+                 "weight": 9.94, "live": true, "accountName": "DNB" }],
+  "cash": [{ "name": "Brukskonto", "kind": "OTHER", "currency": "NOK",
+             "quantity": 50000.00, "valueNok": 50000.00, "weight": null,
+             "live": false, "accountName": "DNB (bank)" }],
   "fxRates": { "USD": 9.4515, "SEK": 0.994 } }
 ```
 
@@ -216,6 +219,14 @@ report cost basis only at portfolio level.
 eToro demo account — is excluded from it, from the live/as-of split and from
 `accountCount`, and its value is reported separately as `simulatedNok`. It still
 appears in `accounts` so it can be displayed and labelled.
+
+Bank balances (accounts with `broker: "BANK"`, linked through Enable Banking)
+are **cash, not investments**. They count in `totalNok`, which is a net worth,
+and are reported as `cashNok`, with each bank account in `cash` rather than
+`holdings`. Everything about the investments is measured without them:
+`investmentsNok` is the total less `cashNok`, the live/as-of split and
+`livePercent` are out of `investmentsNok`, and each holding's `weight` is its
+share of `investmentsNok`. A balance has no weight.
 
 ### `GET /api/holdings/history`
 ```json
