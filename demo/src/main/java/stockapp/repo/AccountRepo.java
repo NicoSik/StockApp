@@ -11,6 +11,7 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -146,6 +147,16 @@ public final class AccountRepo {
     public int writeSnapshot(int accountId, LocalDate asOf, String sourceFile,
                              BigDecimal reportedTotalNok, BigDecimal reportedCostBasisNok,
                              List<StoredHolding> holdings) {
+        return writeSnapshot(accountId, asOf, sourceFile, reportedTotalNok, reportedCostBasisNok, holdings, Map.of());
+    }
+
+    /**
+     * @param labels instrument id to the label its row came in under in the
+     *               broker's file, for a file import; see {@link #label}
+     */
+    public int writeSnapshot(int accountId, LocalDate asOf, String sourceFile,
+                             BigDecimal reportedTotalNok, BigDecimal reportedCostBasisNok,
+                             List<StoredHolding> holdings, Map<Integer, String> labels) {
         try (Connection conn = db.connection()) {
             conn.setAutoCommit(false);
             try {
@@ -175,8 +186,8 @@ public final class AccountRepo {
 
                 try (PreparedStatement ps = conn.prepareStatement("""
                         INSERT INTO holding (snapshot_id, instrument_id, quantity, avg_cost, currency,
-                                             value_native, value_nok, leverage, direction)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                             value_native, value_nok, leverage, direction, label)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT (snapshot_id, instrument_id) DO UPDATE
                             SET quantity = holding.quantity + EXCLUDED.quantity,
                                 value_nok = holding.value_nok + EXCLUDED.value_nok
@@ -191,6 +202,7 @@ public final class AccountRepo {
                         ps.setBigDecimal(7, holding.valueNok());
                         ps.setBigDecimal(8, holding.leverage());
                         ps.setString(9, holding.direction());
+                        ps.setString(10, labels.get(holding.instrumentId()));
                         ps.addBatch();
                     }
                     ps.executeBatch();
@@ -256,6 +268,80 @@ public final class AccountRepo {
                 rs.getDate("as_of").toLocalDate(), rs.getString("source_file"),
                 rs.getBigDecimal("reported_total_nok"),
                 rs.getBigDecimal("reported_cost_basis_nok"));
+    }
+
+    /**
+     * The label a holding came in under in its broker's file - its ISIN,
+     * ticker or name. Empty for holdings imported before labels were kept,
+     * and for synced accounts.
+     */
+    public Optional<String> label(int snapshotId, int instrumentId) {
+        String sql = "SELECT label FROM holding WHERE snapshot_id = ? AND instrument_id = ?";
+        try (Connection conn = db.connection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, snapshotId);
+            ps.setInt(2, instrumentId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.ofNullable(rs.getString("label")) : Optional.empty();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Could not read a holding's label", e);
+        }
+    }
+
+    /**
+     * Points every holding of one account from one instrument to another, in
+     * every snapshot that has it, so its value history is repriced too. Other
+     * accounts holding the old instrument are left alone: an unconfirmed
+     * instrument can be shared by holdings that are different things.
+     *
+     * @return how many holdings moved
+     * @throws IllegalArgumentException when a snapshot already holds the target,
+     *         since two rows of one instrument in one snapshot cannot coexist
+     */
+    public int remapInstrument(int accountId, int fromInstrumentId, int toInstrumentId) {
+        try (Connection conn = db.connection()) {
+            conn.setAutoCommit(false);
+            try {
+                try (PreparedStatement ps = conn.prepareStatement("""
+                        SELECT count(*) FROM holding h
+                          JOIN snapshot s ON s.id = h.snapshot_id
+                         WHERE s.account_id = ? AND h.instrument_id = ?
+                           AND EXISTS (SELECT 1 FROM holding o
+                                        WHERE o.snapshot_id = h.snapshot_id AND o.instrument_id = ?)
+                        """)) {
+                    ps.setInt(1, accountId);
+                    ps.setInt(2, fromInstrumentId);
+                    ps.setInt(3, toInstrumentId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        rs.next();
+                        if (rs.getInt(1) > 0) {
+                            throw new IllegalArgumentException("already held");
+                        }
+                    }
+                }
+                int moved;
+                try (PreparedStatement ps = conn.prepareStatement("""
+                        UPDATE holding SET instrument_id = ?
+                         WHERE instrument_id = ?
+                           AND snapshot_id IN (SELECT id FROM snapshot WHERE account_id = ?)
+                        """)) {
+                    ps.setInt(1, toInstrumentId);
+                    ps.setInt(2, fromInstrumentId);
+                    ps.setInt(3, accountId);
+                    moved = ps.executeUpdate();
+                }
+                conn.commit();
+                return moved;
+            } catch (SQLException | RuntimeException e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Could not move the holdings to the new instrument", e);
+        }
     }
 
     public List<StoredHolding> holdings(int snapshotId) {

@@ -78,7 +78,9 @@ in the table rather than shown as though they were ordinary stock.
   from a name or ticker and then checked against the price in your own file. A
   mismatch is refused and handed to you to fix rather than quietly believed —
   which is what caught a Nordnet line called "AEye A" resolving to AudioEye
-  (`AEYE`) when the holding was AEye Inc (`LIDR`).
+  (`AEYE`) when the holding was AEye Inc (`LIDR`). A holding that was not
+  settled at import has a **Fix match** button in the table: pick its listing
+  and it is priced live from then on, without importing the file again.
 - **Imports are reversible.** Each one writes a dated snapshot rather than
   editing holdings, so re-importing is safe.
 - **A value history for every day.** The chart values your latest import at

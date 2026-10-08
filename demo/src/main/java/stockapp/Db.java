@@ -51,6 +51,7 @@ public final class Db implements AutoCloseable {
             "V010__snapshot_cost_basis.sql",
             "V011__instrument_close.sql",
             "V012__bank_links.sql",
+            "V013__holding_label.sql",
     };
 
     private final HikariDataSource dataSource;

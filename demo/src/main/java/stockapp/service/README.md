@@ -18,7 +18,7 @@ Paper trading:
 - **`AlertService`** — `evaluate()` fires every pending alert whose threshold was crossed.
 
 Holdings:
-- **`ImportService`** — `preview(filename, bytes)` parses and resolves without writing; `previewFunds(account, broker, funds)` does the same for hand-entered funds; `commit(previewId, overrides, skip)` writes the snapshot and remembers settled matches. `aliasKeys(isin, ticker, name)` is the order a row's labels are remembered and looked up in.
+- **`ImportService`** — `preview(filename, bytes)` parses and resolves without writing; `previewFunds(account, broker, funds)` does the same for hand-entered funds; `commit(previewId, overrides, skip)` writes the snapshot and remembers settled matches. `aliasKeys(isin, ticker, name)` is the order a row's labels are remembered and looked up in. `fixMatch(accountId, instrumentId, symbol)` gives a holding that was not settled at import its symbol afterwards, refusing a listing in another currency, and remembers it for the next import.
 - **`EtoroSyncService`** — `sync()` writes the live eToro portfolio as a snapshot; `configured()`.
 - **`FxService`** — `toNok(amount, currency)`, `rate(currency)`, `latestRates()` (cached for an hour, stored rates as fallback); `rateHistory(from)` reads stored dated rates, `fetchRateHistory(…)` fetches and stores them.
 - **`Valuation`** — `compute(…)` produces every figure on the holdings page; `value(holding, …)` values one holding, live or as reported; `history(…)` values every day since the first import at that day's close and rate; `isPriceable(holding)` says which holdings get a market price; `isCash(account)` says which accounts are bank balances, kept out of the investment figures. No I/O; tested.

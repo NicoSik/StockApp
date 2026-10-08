@@ -242,6 +242,16 @@ found once it does. Caching an unverified guess
 would skip the price check on every future import — which is how a wrong match
 becomes permanent and invisible.
 
+A row that was not settled at import can be settled later, from the holdings
+table, without the file: `ImportService.fixMatch` takes the symbol the user
+picks, refuses one that trades in another currency than the holding (the live
+price is converted from the holding's currency), and moves the account's
+holdings to that symbol's instrument in every snapshot, so the history is
+repriced too. It moves the holdings rather than editing their instrument,
+because an unconfirmed instrument can be shared by holdings in other accounts
+that are something else. Each holding keeps the label its row came in under
+(`holding.label`), and the fix is remembered under it for the next import.
+
 ### eToro: linked, not imported
 
 eToro is the only one of the three brokers with a personal API, so its holdings
